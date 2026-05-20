@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 
 def project_root() -> Path:
-    """Return the repository root from `.claude/skills/skill_helpers.py`."""
+    """Return the repository root from `.agents/skills/skill_helpers.py`."""
     return Path(__file__).resolve().parents[2]
 
 

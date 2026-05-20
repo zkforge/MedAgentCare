@@ -1,6 +1,6 @@
 """
 Skill Loader 辅助函数
-用于动态加载 .claude/skills 目录下的 Skill 函数（自动发现）
+用于动态加载 .agents/skills 目录下的 Skill 函数（自动发现）
 """
 from pathlib import Path
 import importlib.util
@@ -16,6 +16,20 @@ except ImportError:
     import logging
 
     logger = logging.getLogger(__name__)
+
+
+def get_skills_dir(project_root: Path) -> Path:
+    """Return the active local skills directory, preferring the neutral .agents path."""
+    agents_skills_dir = project_root / ".agents" / "skills"
+    if agents_skills_dir.exists():
+        return agents_skills_dir
+
+    legacy_skills_dir = project_root / ".claude" / "skills"
+    if legacy_skills_dir.exists():
+        logger.warning(f"Using legacy skills directory: {legacy_skills_dir}")
+        return legacy_skills_dir
+
+    return agents_skills_dir
 
 
 def load_skill_function(skill_name: str, script_name: str, function_name: str, project_root: Path = None) -> Callable:
@@ -38,7 +52,7 @@ def load_skill_function(skill_name: str, script_name: str, function_name: str, p
         # 自动检测仓库根目录（当前文件在 src/medagentcare/core/ 目录）
         project_root = Path(__file__).resolve().parents[3]
 
-    skills_dir = project_root / ".claude" / "skills"
+    skills_dir = get_skills_dir(project_root)
     module_path = skills_dir / skill_name / "script" / f"{script_name}.py"
 
     if not module_path.exists():
@@ -97,7 +111,7 @@ def parse_skill_md(file_path: Path) -> Optional[Dict]:
 
 def discover_skills(project_root: Path = None) -> List[Dict]:
     """
-    自动扫描 .claude/skills 目录，发现所有 skills
+    自动扫描 .agents/skills 目录，发现所有 skills
 
     Args:
         project_root: 项目根目录（如果为 None，自动检测）
@@ -116,7 +130,7 @@ def discover_skills(project_root: Path = None) -> List[Dict]:
     if project_root is None:
         project_root = Path(__file__).resolve().parents[3]
 
-    skills_dir = project_root / ".claude" / "skills"
+    skills_dir = get_skills_dir(project_root)
 
     if not skills_dir.exists():
         logger.warning(f"Skills directory not found: {skills_dir}")

@@ -1,13 +1,16 @@
 import unittest
 from pathlib import Path
 
-from medagentcare.core.skill_loader import discover_skills
+from medagentcare.core.skill_loader import discover_skills, get_skills_dir
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class SkillDiscoveryTests(unittest.TestCase):
+    def test_prefers_agents_skills_directory(self):
+        self.assertEqual(get_skills_dir(PROJECT_ROOT), PROJECT_ROOT / ".agents" / "skills")
+
     def test_discovers_expected_local_skills(self):
         skills = discover_skills(project_root=PROJECT_ROOT)
         discovered_names = {skill["name"] for skill in skills}

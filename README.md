@@ -15,7 +15,7 @@ MedAgentCare 是一个多 Agent 医疗咨询原型项目，代码包含交互式
 - `src/medagentcare/core/`：LLM 客户端、Agent Loop、SkillRegistry、SkillLoader。
 - `src/medagentcare/memory/`：短期记忆、Mem0 长期记忆、会话总结和熵管理模块。
 - `src/medagentcare/knowledge/`：Milvus Lite 知识库封装和 txt 文档导入脚本。
-- `.claude/skills/`：9 个 Skill 的 `SKILL.md` 元数据和可加载 `script/*.py` 实现。
+- `.agents/skills/`：9 个 Skill 的 `SKILL.md` 元数据和可加载 `script/*.py` 实现。
 - `Dockerfile` / `.dockerignore` / `.env.example`：容器部署基础文件。
 
 当前限制：
@@ -23,8 +23,6 @@ MedAgentCare 是一个多 Agent 医疗咨询原型项目，代码包含交互式
 - `examples/test_all.py` 含有历史字段和真实外部服务依赖，不能作为当前最终验收标准。
 - 医疗知识库、LLM、Mem0、网络搜索依赖本地环境或外部服务，部署前必须显式配置。
 - README 只记录可以从代码、配置或命令验证的状态；尚未验证的能力统一放入 TODO，不写成已验证结论。
-
-更完整的待办项见 [TODO.md](TODO.md)。
 
 ## 目录结构
 
