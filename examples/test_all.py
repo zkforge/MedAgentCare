@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MediX Agent Swarm 完整测试套件
+MedAgentCare 完整测试套件
 
 包含三部分测试：
 1. Phase 1: Agent Loop 工具调用测试
@@ -49,7 +49,7 @@ async def generate_test_report(passed: int, failed: int, total: int, context_awa
     report_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     report_path = Path(__file__).parent.parent / "TEST_REPORT.md"
 
-    report = f"""# MediX Agent Swarm 测试报告
+    report = f"""# MedAgentCare 测试报告
 
 **测试时间**: {report_time}
 **测试总数**: {total}
@@ -87,8 +87,8 @@ async def generate_test_report(passed: int, failed: int, total: int, context_awa
 | | - 工具集成到 ResearchAgent | ✅ |
 | | - 端到端测试 | ✅ |
 | **Skills 架构** | Skills-Agent 两层架构 | ✅ |
-| | - 7个原子 Skills 自包含 | ✅ |
-| | - Agent 注册所有7个 Skills | ✅ |
+| | - 9个 Skills 自包含 | ✅ |
+| | - Agent 注册所有9个 Skills | ✅ |
 | | - Agent 自主选择 Skills | ✅ |
 | | - Milvus 知识库集成 | ✅ |
 
@@ -117,7 +117,7 @@ async def generate_test_report(passed: int, failed: int, total: int, context_awa
 
 ### 4. Skills 架构（两层架构）
 
-**所有 Agent 共享7个 Skills**：
+**所有 Agent 共享9个 Skills**：
 - ✅ `search_knowledge`: 医学知识库搜索（**Milvus 语义检索**）
 - ✅ `recommend_lifestyle`: 生活方式和用药建议（**Milvus 检索**）
 - ✅ `assess_risk`: 风险等级评估（规则引擎）
@@ -128,13 +128,13 @@ async def generate_test_report(passed: int, failed: int, total: int, context_awa
 
 **关键特性**：
 - ✅ Skills 自包含，直接调用 Milvus 或内置逻辑
-- ✅ Agent 注册所有7个 Skills，根据任务自主选择
+- ✅ Agent 注册所有9个 Skills，根据任务自主选择
 - ✅ 无需 Tools 层，简化为两层架构
 
 ### 5. DeepResearch
 
 - ✅ **网络搜索模块**：DuckDuckGo 搜索 API 集成
-- ✅ **本地知识库**：Qdrant 向量数据库（双模式支持）
+- ✅ **本地知识库**：Milvus Lite 知识库检索
 - ✅ **证据综合器**：LLM 驱动的多来源信息整合
 - ✅ **深度研究工作流**：查询规划 → 并行搜索 → 证据综合 → 质量验证
 
@@ -192,7 +192,7 @@ txt 文档（knowledge/data/documents/）
 |------|------|
 | LLM | OpenAI Compatible API |
 | 向量数据库（知识库） | Milvus Lite |
-| 向量数据库（DeepResearch） | Qdrant |
+| 向量数据库（DeepResearch） | Milvus Lite |
 | Embedding 模型 | BAAI/bge-small-zh-v1.5 (512维，统一使用) |
 | 长期记忆 | Mem0 云服务 |
 | 短期记忆 | 内存/Redis |
@@ -226,7 +226,7 @@ txt 文档（knowledge/data/documents/）
 - ✅ LLM 驱动的 Agent Loop
 - ✅ 去中心化的 Agent Swarm 群体智能
 - ✅ 短期+长期记忆系统
-- ✅ 7个精简高质量工具
+- ✅ 9个可加载 Skills
 - ✅ DeepResearch 深度研究能力
 - ✅ Milvus 统一知识库架构
 
@@ -884,8 +884,8 @@ async def test_deep_research_tool_integration():
     agent = ResearchAgent()
 
     # 检查工具注册
-    tools = agent.tool_registry.get_all()
-    tool_names = [tool.name for tool in tools]
+    tools = agent.skill_registry.get_all()
+    tool_names = list(tools.keys())
 
     print(f"\n📋 已注册工具: {tool_names}")
 
@@ -1351,7 +1351,7 @@ async def test_memory_no_duplication():
 async def main():
     """运行所有测试"""
     print("\n" + "🧪 "*35)
-    print(" "*15 + "MediX Agent Swarm 完整测试套件")
+    print(" "*15 + "MedAgentCare 完整测试套件")
     print(" "*10 + "Phase 1-6: Agent Loop + Swarm + Memory + Tools + DeepResearch + Milvus")
     print("🧪 "*35 + "\n")
 
@@ -1433,8 +1433,8 @@ async def main():
         print("  ✅ Phase 5: DeepResearch 证据综合器（网络搜索+知识库+证据综合）")
         print("  ✅ Phase 5: DeepResearch 工具集成到 ResearchAgent")
         print("  ✅ Phase 5: DeepResearch 端到端测试（ResearchAgent 实际调用）")
-        print("  ✅ Skills 架构：7个原子 Skills 完全替代 Tools 层")
-        print("  ✅ Skills 集成：所有 Agent 注册全部7个 Skills")
+        print("  ✅ Skills 架构：9个 Skills 通过 SkillRegistry 暴露给 Agent Loop")
+        print("  ✅ Skills 集成：所有 Agent 注册全部9个 Skills")
         print("  ✅ Skills 调用：Agent Loop 自主选择合适的 Skills")
         print("  ✅ Milvus 知识库：语义检索支持所有相关 Skills")
         if HARNESS_AVAILABLE:

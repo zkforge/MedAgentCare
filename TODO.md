@@ -4,9 +4,6 @@
 
 ## 高优先级
 
-- 补齐 `.claude/skills/*/script/*.py`，让 `core.skill_loader.discover_skills()` 能真正加载 9 个 Skill，而不是只存在 `SKILL.md` 元数据。
-- 修复 `validation/__init__.py` 与实际文件名不一致的问题：当前导入 `.auto_fixer`，实际文件是 `auto_fixer_20260428_231043.py`。
-- 重写 `examples/test_all.py` 中已经漂移的测试字段，例如 `agent.tool_registry` 应与当前 `skill_registry` 架构对齐。
 - 增加不依赖真实 LLM、Mem0、Milvus、外网搜索的离线单元测试，先覆盖配置加载、FastAPI health、Skill 发现、约束验证和路由降级。
 
 ## 中优先级
@@ -20,5 +17,4 @@
 ## 低优先级
 
 - 收敛 README 中历史阶段性表述，避免再次出现“已完成但代码不可验证”的状态漂移。
-- 统一中文/英文命名，例如 MediX、MedAgentCare、medix-agent-swarm 当前混用。
 - 增加 API 示例请求、错误响应示例和前端接入说明。

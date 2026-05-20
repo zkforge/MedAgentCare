@@ -8,7 +8,12 @@
 - 保持 Agent 输出质量
 """
 from typing import Dict, Any, List
-from loguru import logger
+try:
+    from loguru import logger
+except ImportError:
+    import logging
+
+    logger = logging.getLogger(__name__)
 
 
 class AutoFixer:

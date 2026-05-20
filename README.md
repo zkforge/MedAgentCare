@@ -15,13 +15,11 @@ MedAgentCare 是一个多 Agent 医疗咨询原型项目，当前代码包含交
 - `core/`：LLM 客户端、Agent Loop、SkillRegistry、SkillLoader。
 - `memory/`：短期记忆、Mem0 长期记忆、会话总结和熵管理模块。
 - `knowledge/`：Milvus Lite 知识库封装和 txt 文档导入脚本。
-- `.claude/skills/`：9 个 Skill 的 `SKILL.md` 元数据。
+- `.claude/skills/`：9 个 Skill 的 `SKILL.md` 元数据和可加载 `script/*.py` 实现。
 - `Dockerfile` / `.dockerignore` / `.env.example`：容器部署基础文件。
 
 尚未完成或需要修复：
 
-- `.claude/skills/*/script/*.py` 当前缺失，`SkillLoader` 无法真正加载这些 Skill 实现。
-- `validation/__init__.py` 仍引用不存在的 `validation/auto_fixer.py`，会导致 Harness 自动修复模块不可用。
 - `examples/test_all.py` 含有历史字段和真实外部服务依赖，暂时不能作为最终验收标准。
 - 医疗知识库、LLM、Mem0、网络搜索都依赖本地环境或外部服务，部署前必须显式配置。
 
@@ -43,7 +41,7 @@ MedAgentCare 是一个多 Agent 医疗咨询原型项目，当前代码包含交
 ├── knowledge/                     # Milvus Lite 知识库封装和导入脚本
 ├── research/                      # DeepResearch 工作流和证据综合
 ├── constraints/                   # Agent/Swarm 约束配置
-├── validation/                    # 输出修复模块，当前需整理文件名
+├── validation/                    # 输出验证和自动修复模块
 ├── examples/test_all.py           # 历史集成测试脚本，当前需修复后再作为验收
 └── TODO.md                        # 未改动完善项
 ```
@@ -141,4 +139,4 @@ python knowledge/scripts/import_hardcoded_data.py
 python3 -m compileall -q .
 ```
 
-该检查通过。完整端到端测试暂未运行，因为当前环境缺少项目依赖和真实 LLM/API 配置，且 `examples/test_all.py` 仍有历史漂移问题。
+该检查通过。完整端到端测试暂未运行，因为当前环境缺少完整项目依赖和真实 LLM/API 配置，且 `examples/test_all.py` 仍有历史漂移问题。

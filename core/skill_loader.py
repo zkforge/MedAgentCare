@@ -5,9 +5,17 @@ Skill Loader 辅助函数
 from pathlib import Path
 import importlib.util
 from typing import Callable, Dict, List, Optional
-import yaml
-import os
-from loguru import logger
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+try:
+    from loguru import logger
+except ImportError:
+    import logging
+
+    logger = logging.getLogger(__name__)
 
 
 def load_skill_function(skill_name: str, script_name: str, function_name: str, project_root: Path = None) -> Callable:
@@ -67,11 +75,20 @@ def parse_skill_md(file_path: Path) -> Optional[Dict]:
             end_idx = content.find('---', 3)
             if end_idx != -1:
                 yaml_content = content[3:end_idx]
-                try:
-                    data = yaml.safe_load(yaml_content)
-                    return data
-                except yaml.YAMLError as e:
-                    logger.warning(f"Error parsing YAML in {file_path}: {e}")
+                if yaml:
+                    try:
+                        data = yaml.safe_load(yaml_content)
+                        return data
+                    except yaml.YAMLError as e:
+                        logger.warning(f"Error parsing YAML in {file_path}: {e}")
+                else:
+                    data = {}
+                    for line in yaml_content.splitlines():
+                        if ":" not in line:
+                            continue
+                        key, value = line.split(":", 1)
+                        data[key.strip()] = value.strip().strip('"').strip("'")
+                    return data or None
         return None
     except Exception as e:
         logger.warning(f"Error reading {file_path}: {e}")
