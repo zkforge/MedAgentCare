@@ -25,7 +25,7 @@ except ImportError:
     ENTROPY_ENABLED = False
 
 try:
-    from config import MEM0_CONFIG
+    from medagentcare.config import MEM0_CONFIG
 except ImportError:
     MEM0_CONFIG = None
 

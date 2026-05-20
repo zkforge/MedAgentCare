@@ -35,8 +35,8 @@ def load_skill_function(skill_name: str, script_name: str, function_name: str, p
         search_knowledge = load_skill_function("search-knowledge", "search", "search_knowledge")
     """
     if project_root is None:
-        # 自动检测项目根目录（假设当前文件在 core/ 目录）
-        project_root = Path(__file__).parent.parent
+        # 自动检测仓库根目录（当前文件在 src/medagentcare/core/ 目录）
+        project_root = Path(__file__).resolve().parents[3]
 
     skills_dir = project_root / ".claude" / "skills"
     module_path = skills_dir / skill_name / "script" / f"{script_name}.py"
@@ -114,7 +114,7 @@ def discover_skills(project_root: Path = None) -> List[Dict]:
         ]
     """
     if project_root is None:
-        project_root = Path(__file__).parent.parent
+        project_root = Path(__file__).resolve().parents[3]
 
     skills_dir = project_root / ".claude" / "skills"
 
@@ -200,7 +200,7 @@ def load_all_skills(project_root: Path = None) -> dict:
         }
     """
     if project_root is None:
-        project_root = Path(__file__).parent.parent
+        project_root = Path(__file__).resolve().parents[3]
 
     discovered = discover_skills(project_root)
 

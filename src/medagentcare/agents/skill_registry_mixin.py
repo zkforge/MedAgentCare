@@ -2,8 +2,8 @@
 统一的 Skills 注册（自动发现）
 所有 Worker Agents 共享
 """
-from core.skill_loader import discover_skills
-from core.skill_registry import SkillParameter
+from medagentcare.core.skill_loader import discover_skills
+from medagentcare.core.skill_registry import SkillParameter
 from pathlib import Path
 from loguru import logger
 import inspect
@@ -24,7 +24,7 @@ class SkillRegistryMixin:
         Skills 会从 .claude/skills/ 目录自动发现，
         无需手动维护列表
         """
-        project_root = Path(__file__).parent.parent
+        project_root = Path(__file__).resolve().parents[3]
         discovered = discover_skills(project_root)
 
         # 自动注册所有发现的 skills

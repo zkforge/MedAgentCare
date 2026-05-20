@@ -12,7 +12,7 @@ def search_similar_cases(query: str, limit: int = 3):
 
     ensure_project_path()
     try:
-        from memory import LongTermMemory
+        from medagentcare.memory import LongTermMemory
 
         memory = LongTermMemory()
         if not memory.enabled:

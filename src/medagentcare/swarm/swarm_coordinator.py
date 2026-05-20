@@ -14,12 +14,12 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from loguru import logger
 
-from core import LLMClient
+from medagentcare.core import LLMClient
 from .shared_context import SharedContext
 from .lead_agent import LeadAgent
 from .events import Event, EventType
-from agents import ConsultationAgent, DiagnosticAgent, ResearchAgent
-from memory import SessionSummaryManager, SessionSummary, ShortTermMemory, LongTermMemory
+from medagentcare.agents import ConsultationAgent, DiagnosticAgent, ResearchAgent
+from medagentcare.memory import SessionSummaryManager, SessionSummary, ShortTermMemory, LongTermMemory
 
 
 class SwarmCoordinator:

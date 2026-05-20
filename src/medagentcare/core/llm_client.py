@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from openai import AsyncOpenAI
 from loguru import logger
 
-from config import LLM_CONFIG
+from medagentcare.config import LLM_CONFIG
 
 
 @dataclass

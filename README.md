@@ -8,13 +8,13 @@ MedAgentCare 是一个多 Agent 医疗咨询原型项目，当前代码包含交
 
 已具备：
 
-- `main.py`：交互式命令行入口。
-- `api.py`：FastAPI 入口，提供 `/health` 和 `/chat`。
-- `swarm/`：LeadAgent、SwarmCoordinator、SharedContext 等多 Agent 协作骨架。
-- `agents/`：ConsultationAgent、DiagnosticAgent、ResearchAgent 三类 Worker Agent。
-- `core/`：LLM 客户端、Agent Loop、SkillRegistry、SkillLoader。
-- `memory/`：短期记忆、Mem0 长期记忆、会话总结和熵管理模块。
-- `knowledge/`：Milvus Lite 知识库封装和 txt 文档导入脚本。
+- `src/medagentcare/main.py`：交互式命令行入口。
+- `src/medagentcare/api.py`：FastAPI 入口，提供 `/health` 和 `/chat`。
+- `src/medagentcare/swarm/`：LeadAgent、SwarmCoordinator、SharedContext 等多 Agent 协作骨架。
+- `src/medagentcare/agents/`：ConsultationAgent、DiagnosticAgent、ResearchAgent 三类 Worker Agent。
+- `src/medagentcare/core/`：LLM 客户端、Agent Loop、SkillRegistry、SkillLoader。
+- `src/medagentcare/memory/`：短期记忆、Mem0 长期记忆、会话总结和熵管理模块。
+- `src/medagentcare/knowledge/`：Milvus Lite 知识库封装和 txt 文档导入脚本。
 - `.claude/skills/`：9 个 Skill 的 `SKILL.md` 元数据和可加载 `script/*.py` 实现。
 - `Dockerfile` / `.dockerignore` / `.env.example`：容器部署基础文件。
 
@@ -29,19 +29,21 @@ MedAgentCare 是一个多 Agent 医疗咨询原型项目，当前代码包含交
 
 ```text
 .
-├── api.py                         # FastAPI HTTP 入口
-├── main.py                        # 交互式 CLI 入口
-├── config.py                      # 环境变量驱动的运行配置
+├── pyproject.toml                 # 包元数据和命令入口
 ├── Dockerfile                     # Docker 部署入口
 ├── .env.example                   # 环境变量示例
-├── agents/                        # 三类 Worker Agent
-├── core/                          # LLM、Agent Loop、Skill 注册/加载
-├── swarm/                         # Swarm 路由与共享上下文
-├── memory/                        # 短期/长期记忆与会话总结
-├── knowledge/                     # Milvus Lite 知识库封装和导入脚本
-├── research/                      # DeepResearch 工作流和证据综合
-├── constraints/                   # Agent/Swarm 约束配置
-├── validation/                    # 输出验证和自动修复模块
+├── src/medagentcare/
+│   ├── api.py                     # FastAPI HTTP 入口
+│   ├── main.py                    # 交互式 CLI 入口
+│   ├── config.py                  # 环境变量驱动的运行配置
+│   ├── agents/                    # 三类 Worker Agent
+│   ├── core/                      # LLM、Agent Loop、Skill 注册/加载
+│   ├── swarm/                     # Swarm 路由与共享上下文
+│   ├── memory/                    # 短期/长期记忆与会话总结
+│   ├── knowledge/                 # Milvus Lite 知识库封装和导入脚本
+│   ├── research/                  # DeepResearch 工作流和证据综合
+│   ├── constraints/               # Agent/Swarm 约束配置
+│   └── validation/                # 输出验证和自动修复模块
 ├── examples/test_all.py           # 历史集成测试脚本，当前需修复后再作为验收
 └── TODO.md                        # 未改动完善项
 ```
@@ -72,19 +74,19 @@ MEM0_API_KEY=
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 ```
 
 启动 CLI：
 
 ```bash
-python main.py
+medagentcare
 ```
 
 启动 FastAPI：
 
 ```bash
-uvicorn api:app --host 0.0.0.0 --port 8000
+uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
 ```
 
 健康检查：
@@ -123,13 +125,13 @@ docker run --env-file .env -p 8000:8000 medagentcare:latest
 
 ## 知识库
 
-医学文档位于 `knowledge/data/documents/`。导入 Milvus Lite：
+医学文档位于 `src/medagentcare/knowledge/data/documents/`，这些 txt 文件是版本化源数据。导入 Milvus Lite：
 
 ```bash
-python knowledge/scripts/import_hardcoded_data.py
+medagentcare-import-knowledge
 ```
 
-`knowledge/data/*.db` 按当前策略视为本地生成产物，默认不纳入 Git。
+`src/medagentcare/knowledge/data/*.db` 按当前策略视为本地生成产物，默认不纳入 Git，也不会进入 Docker build context。部署时需要在环境初始化阶段运行导入脚本，或通过 volume 挂载预生成的数据库。详见 `src/medagentcare/knowledge/data/README.md`。
 
 ## 验证记录
 

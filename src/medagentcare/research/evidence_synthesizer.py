@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from loguru import logger
 
-from core import LLMClient
-from research.web_search import SearchResult
+from medagentcare.core import LLMClient
+from medagentcare.research.web_search import SearchResult
 
 
 @dataclass

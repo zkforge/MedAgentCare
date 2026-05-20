@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
 from loguru import logger
 
-from core import LLMClient, AgentLoop
-from core.skill_registry import SkillRegistry
+from medagentcare.core import LLMClient, AgentLoop
+from medagentcare.core.skill_registry import SkillRegistry
 
 
 class BaseAgent(ABC):

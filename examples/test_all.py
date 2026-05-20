@@ -14,16 +14,16 @@ from datetime import datetime
 from loguru import logger
 
 project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "src"))
 
-from agents import ConsultationAgent, DiagnosticAgent, ResearchAgent
-from swarm import SwarmCoordinator, process_with_swarm, SharedContext, EventType
-from memory import AgentIdentityManager, ShortTermMemory, LongTermMemory, MemoryEntropyManager
+from medagentcare.agents import ConsultationAgent, DiagnosticAgent, ResearchAgent
+from medagentcare.swarm import SwarmCoordinator, process_with_swarm, SharedContext, EventType
+from medagentcare.memory import AgentIdentityManager, ShortTermMemory, LongTermMemory, MemoryEntropyManager
 
 # Harness Engineering 模块
 try:
-    from constraints import ConstraintValidator
-    from validation import AutoFixer
+    from medagentcare.constraints import ConstraintValidator
+    from medagentcare.validation import AutoFixer
     HARNESS_AVAILABLE = True
 except ImportError:
     HARNESS_AVAILABLE = False
@@ -340,7 +340,7 @@ async def test_shared_context():
     assert ctx.data["symptoms"] == ["头痛", "发热"]
 
     # 发布事件
-    from swarm.events import Event
+    from medagentcare.swarm.events import Event
     ctx.publish_event(Event(
         type=EventType.CONTEXT_UPDATED,
         source_agent="test_agent",
@@ -514,7 +514,7 @@ async def test_backward_compatibility():
     print("="*70)
 
     # Phase 1 的使用方式
-    from agents import consult
+    from medagentcare.agents import consult
 
     print("\n🔹 测试：便捷函数 consult()")
     result = await consult("如何预防感冒？")
@@ -823,10 +823,10 @@ async def test_deep_research_evidence_synthesizer():
     print("测试 6.1: DeepResearch 证据综合器")
     print("="*70)
 
-    from research.evidence_synthesizer import EvidenceSynthesizer
-    from research.web_search import SearchResult
+    from medagentcare.research.evidence_synthesizer import EvidenceSynthesizer
+    from medagentcare.research.web_search import SearchResult
     # Document 类已废弃，现在 Milvus 返回 Dict[str, Any]
-    # from research.knowledge_base import Document
+    # from medagentcare.research.knowledge_base import Document
 
     # 创建模拟搜索结果
     web_results = [
@@ -1221,7 +1221,7 @@ async def test_harness_integration():
         print("⚠️ Harness Engineering 模块未安装，跳过测试")
         return
 
-    from core.agent_loop import AgentLoop
+    from medagentcare.core.agent_loop import AgentLoop
 
     # 初始化组件
     stm = ShortTermMemory(storage_type="memory")
@@ -1268,7 +1268,7 @@ async def test_singleton_instances():
 
     # 测试 MedicalKnowledgeBase 单例
     print("\n🔍 测试 MedicalKnowledgeBase 单例...")
-    from knowledge.milvus_kb import MedicalKnowledgeBase
+    from medagentcare.knowledge.milvus_kb import MedicalKnowledgeBase
 
     kb1 = MedicalKnowledgeBase()
     kb1_id = id(kb1)

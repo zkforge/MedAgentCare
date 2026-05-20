@@ -22,7 +22,7 @@ async def deep_research(question: str, use_web: bool = True, use_kb: bool = True
 
     ensure_project_path()
     try:
-        from research.deep_research_workflow import deep_research as run_deep_research
+        from medagentcare.research.deep_research_workflow import deep_research as run_deep_research
 
         report = await run_deep_research(question=question, use_web=use_web, use_kb=use_kb)
         report_data = _serialize_report(report)

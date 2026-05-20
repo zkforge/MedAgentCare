@@ -1,21 +1,20 @@
 """
 导入医学知识文档到 Milvus 知识库
 
-数据来源：knowledge/data/documents/*.txt
+数据来源：src/medagentcare/knowledge/data/documents/*.txt
 文档分类：
 - 01-09: 生活方式建议
 - 10-19: ICD-10疾病编码
 - 20-29: 临床指南
+
+该脚本从版本化 txt 文档生成本地 Milvus Lite 数据库。
+`src/medagentcare/knowledge/data/*.db` 是生成产物，不纳入 Git。
 """
-import sys
 from pathlib import Path
 import re
 
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
 from loguru import logger
-from knowledge.milvus_kb import MedicalKnowledgeBase
+from medagentcare.knowledge.milvus_kb import MedicalKnowledgeBase
 
 
 def load_documents_from_directory(doc_dir: Path) -> list:

@@ -14,7 +14,7 @@ ENV
 dist
 build
 *.egg-info
-knowledge/data/*.db
+**/knowledge/data/*.db
 memory/agents
 memory/swarm
 session_summaries

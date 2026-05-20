@@ -57,4 +57,4 @@ session_summaries/*.md
 agent_identities/*.md
 
 # 本地生成的向量库
-knowledge/data/*.db
+**/knowledge/data/*.db

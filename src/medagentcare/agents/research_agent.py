@@ -12,7 +12,7 @@ from loguru import logger
 
 from .base_agent import BaseAgent
 from .skill_registry_mixin import SkillRegistryMixin
-from core import LLMClient
+from medagentcare.core import LLMClient
 
 
 class ResearchAgent(BaseAgent, SkillRegistryMixin):

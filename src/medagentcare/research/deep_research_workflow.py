@@ -7,10 +7,10 @@ from typing import List, Dict, Any, Optional
 from loguru import logger
 import asyncio
 
-from core import LLMClient
-from research.web_search import WebSearchTool, SearchResult
-from knowledge.milvus_kb import MedicalKnowledgeBase
-from research.evidence_synthesizer import EvidenceSynthesizer, ResearchReport
+from medagentcare.core import LLMClient
+from medagentcare.research.web_search import WebSearchTool, SearchResult
+from medagentcare.knowledge.milvus_kb import MedicalKnowledgeBase
+from medagentcare.research.evidence_synthesizer import EvidenceSynthesizer, ResearchReport
 
 # 全局知识库实例（单例）
 _kb_instance = None

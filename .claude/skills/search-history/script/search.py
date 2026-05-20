@@ -12,7 +12,7 @@ def search_history(session_id: str = "", limit: int = 10):
 
     ensure_project_path()
     try:
-        from memory import ShortTermMemory
+        from medagentcare.memory import ShortTermMemory
 
         memory = ShortTermMemory(storage_type="memory")
         messages = memory.get_recent_messages(session_id=session_id, limit=limit)

@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from config import LLM_CONFIG, MEM0_CONFIG
+from medagentcare.config import LLM_CONFIG, MEM0_CONFIG
 
 
 app = FastAPI(
@@ -44,7 +44,7 @@ async def health() -> Dict[str, Any]:
 async def chat(request: ChatRequest) -> Dict[str, Any]:
     """Run one consultation turn through the existing Swarm pipeline."""
     try:
-        from swarm import process_with_swarm
+        from medagentcare.swarm import process_with_swarm
 
         return await process_with_swarm(
             question=request.question,

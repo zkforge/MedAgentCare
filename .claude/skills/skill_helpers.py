@@ -11,9 +11,9 @@ def project_root() -> Path:
 
 def ensure_project_path() -> None:
     """Allow skill scripts loaded by file path to import project modules."""
-    root = str(project_root())
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    src_path = str(project_root() / "src")
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
 
 
 def success(answer: str, **payload: Any) -> Dict[str, Any]:
@@ -36,7 +36,7 @@ def search_medical_knowledge(
     """Search the Milvus-backed medical knowledge base with structured fallback."""
     ensure_project_path()
     try:
-        from knowledge.milvus_kb import MedicalKnowledgeBase
+        from medagentcare.knowledge.milvus_kb import MedicalKnowledgeBase
 
         kb = MedicalKnowledgeBase()
         results = kb.search(query=query, top_k=limit, filter_type=filter_type)

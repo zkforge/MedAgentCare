@@ -9,6 +9,7 @@
 参考实现：本地历史知识库原型
 """
 import json
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from loguru import logger
@@ -30,7 +31,7 @@ class MedicalKnowledgeBase:
 
     def __init__(
         self,
-        db_path: str = "./knowledge/data/milvus_lite.db",
+        db_path: Optional[str] = None,
         collection_name: str = "medical_knowledge",
         embedding_model: str = "BAAI/bge-small-zh-v1.5"
     ):
@@ -38,13 +39,19 @@ class MedicalKnowledgeBase:
         初始化医学知识库
 
         Args:
-            db_path: Milvus Lite 数据库文件路径
+            db_path: Milvus Lite 数据库文件路径；默认读取
+                MEDAGENTCARE_MILVUS_DB_PATH，未设置时使用包内 data/milvus_lite.db
             collection_name: Collection 名称
             embedding_model: Embedding 模型名称或本地路径
         """
         # 防止重复初始化
         if hasattr(self, '_initialized'):
             return
+
+        if db_path is None:
+            db_path = os.getenv("MEDAGENTCARE_MILVUS_DB_PATH") or str(
+                Path(__file__).resolve().parent / "data" / "milvus_lite.db"
+            )
 
         self.db_path = db_path
         self.collection_name = collection_name

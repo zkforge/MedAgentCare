@@ -11,7 +11,7 @@ import uuid
 from typing import Dict, Any, List, Optional
 from loguru import logger
 
-from core.llm_client import LLMClient
+from medagentcare.core.llm_client import LLMClient
 from .shared_context import SharedContext, SubTask, TaskStatus
 from .events import Event, EventType
 

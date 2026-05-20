@@ -14,8 +14,8 @@ from .llm_client import LLMResponse
 
 # Harness Engineering: 约束验证和自动修复
 try:
-    from constraints import ConstraintValidator
-    from validation import AutoFixer
+    from medagentcare.constraints import ConstraintValidator
+    from medagentcare.validation import AutoFixer
     CONSTRAINTS_ENABLED = True
 except ImportError:
     logger.warning("Constraints module not found, running without constraint validation")

@@ -6,14 +6,9 @@ MedAgentCare 多智能体医疗助手 - 主入口
 import asyncio
 import sys
 import time
-from pathlib import Path
 from loguru import logger
 
-# 添加项目根目录到路径
-project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
-
-from swarm import process_with_swarm
+from medagentcare.swarm import process_with_swarm
 
 
 def setup_logger(verbose: bool = False):
