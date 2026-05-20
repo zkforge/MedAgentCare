@@ -129,11 +129,21 @@ class ConstraintValidator:
 
         # 检查禁止行为
         forbidden_actions = agent_constraints.get('forbidden_actions', [])
-        if 'diagnose_disease' in forbidden_actions:
+        diagnosis_actions = {
+            'diagnose_disease',
+            'give_definitive_diagnosis',
+            'give_diagnosis',
+        }
+        if diagnosis_actions.intersection(forbidden_actions):
             if any(phrase in output for phrase in ["您患有", "确诊为", "肯定是", "就是"]):
                 violations.append("包含明确诊断（越界行为）")
 
-        if 'prescribe_medication' in forbidden_actions:
+        prescription_actions = {
+            'prescribe_medication',
+            'recommend_specific_drugs',
+            'recommend_treatment',
+        }
+        if prescription_actions.intersection(forbidden_actions):
             # 更精细的药物处方检测（避免误报）
             # 只检测明确的药物处方模式
             import re
@@ -148,6 +158,10 @@ class ConstraintValidator:
 
             # 模式3: 明确的处方建议（如：建议服用XX 20mg）
             elif re.search(r'(建议|推荐)(服用|使用).{0,15}\d+\s*(mg|g|毫克|克)', output):
+                violations.append("包含具体药物处方（越界行为）")
+
+            # 模式4: 用药语境下，中文药名后直接跟剂量（如：可使用硝苯地平20mg）
+            elif re.search(r'(服用|使用|口服|注射|可用|可使用).{0,15}[\u4e00-\u9fff]{2,20}\s*\d+\s*(mg|g|毫克|克)', output):
                 violations.append("包含具体药物处方（越界行为）")
 
         return {
