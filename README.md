@@ -20,7 +20,6 @@ MedAgentCare 是一个多 Agent 医疗咨询原型项目，代码包含交互式
 
 当前限制：
 
-- `examples/test_all.py` 含有历史字段和真实外部服务依赖，不能作为当前最终验收标准。
 - 医疗知识库、LLM、Mem0、网络搜索依赖本地环境或外部服务，部署前必须显式配置。
 - README 只记录可以从代码、配置或命令验证的状态；尚未验证的能力统一放入 TODO，不写成已验证结论。
 
@@ -43,7 +42,6 @@ MedAgentCare 是一个多 Agent 医疗咨询原型项目，代码包含交互式
 │   ├── research/                  # DeepResearch 工作流和证据综合
 │   ├── constraints/               # Agent/Swarm 约束配置
 │   └── validation/                # 输出验证和自动修复模块
-├── examples/test_all.py           # 历史集成测试脚本，修复后再作为验收
 └── TODO.md                        # 待完善项
 ```
 
@@ -378,4 +376,4 @@ python3 -m compileall -q src tests
 
 上述检查不覆盖真实 LLM 调用、Mem0 连接、Milvus Lite 数据导入、网络搜索或 Docker 镜像运行。
 
-尚未形成可重复的端到端验收测试，原因是当前环境缺少完整外部服务配置，且 `examples/test_all.py` 仍有历史漂移问题。端到端能力在补齐集成测试前，不在 README 中声明为已验证。
+尚未形成可重复的端到端验收测试，原因是当前环境缺少完整外部服务配置。端到端能力在补齐集成测试前，不在 README 中声明为已验证。

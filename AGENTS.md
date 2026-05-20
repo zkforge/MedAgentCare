@@ -9,7 +9,7 @@
 - 只改当前任务直接相关的文件；发现无关历史问题时记录或说明，不顺手重构。
 - 不把 README 写成阶段汇报；README 只能声明代码、配置或命令可验证的事实。
 - 医疗输出相关修改必须注意安全约束：不能明确诊断，不能给具体处方剂量，高危症状必须建议就医。
-- `examples/test_all.py` 是历史集成脚本，当前不能作为最终验收标准；优先使用 `tests/` 下的离线测试。
+- 当前没有可重复端到端集成测试；优先使用 `tests/` 下的离线测试。
 
 ## 常用命令
 
@@ -36,7 +36,6 @@ medagentcare-import-knowledge
 - `TODO.md`：只记录尚未完成的完善项；已完成事项要从这里移除。
 - `AGENTS.md`：面向代码 Agent 的开发地图和文件职责说明。
 - `pyproject.toml`：正式包元数据、依赖、`src/` 包发现规则、console scripts 和包数据配置。
-- `setup.py`：兼容旧 setuptools 构建入口，实际元数据以 `pyproject.toml` 为准。
 - `requirements.txt`：Dockerfile 当前使用的依赖安装清单。
 - `Dockerfile`：生产镜像基础定义，默认运行 `uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000`。
 - `.env.example`：运行时环境变量示例，不放真实密钥。
@@ -129,7 +128,7 @@ medagentcare-import-knowledge
 - `tests/test_api_offline.py`：离线测试 `/health`、`/chat` 错误映射和 `enable_swarm=False` 参数传递。
 - `tests/test_skill_discovery.py`：离线测试 `.agents/skills` 优先目录和 9 个 Skill 自动发现。
 - `tests/test_medical_safety_constraints.py`：离线测试医疗安全约束，包括高危就医、禁止确诊、禁止具体处方剂量。
-- `examples/test_all.py`：历史集成测试脚本，包含大量真实外部服务和旧字段假设。修复前不要把它作为 CI 或验收入口。
+- 旧的大型集成脚本已移除；新增端到端验收请放入 `tests/` 或专门的 `scripts/`，并明确外部依赖。
 
 ## 运行边界
 
