@@ -66,7 +66,15 @@ LLM_MAX_TOKENS=8192
 
 # 可选：启用 Mem0 长期记忆
 MEM0_API_KEY=
+
+# 可选：Hugging Face 镜像和模型缓存
+HF_ENDPOINT=https://hf-mirror.com
+HF_HOME=/Users/your-name/.cache/huggingface
+SENTENCE_TRANSFORMERS_HOME=/Users/your-name/.cache/sentence-transformers
+TORCH_HOME=/Users/your-name/.cache/torch
 ```
+
+本地 MacBook Air 演示建议把 Hugging Face、Sentence Transformers 和 Torch 缓存放在用户目录下，不建议使用相对路径，避免从不同工作目录启动服务时重复下载模型。
 
 ## 本地运行
 
@@ -85,6 +93,15 @@ medagentcare
 启动 FastAPI：
 
 ```bash
+uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
+```
+
+本地启动时，应用会自动读取项目根目录 `.env`。如果同名变量已经存在于进程环境中，真实环境变量优先，不会被 `.env` 覆盖。
+
+非交互式 zsh 不会自动读取 `~/.zshrc`。如果需要使用 shell 中的临时变量覆盖 `.env`，可以在启动前显式导出：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
 uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
 ```
 
@@ -304,6 +321,10 @@ LLM_BASE_URL=...
 LLM_MODEL_NAME=...
 MEM0_API_KEY=...
 MEDAGENTCARE_MILVUS_DB_PATH=/data/knowledge/milvus_lite.db
+HF_ENDPOINT=https://hf-mirror.com
+HF_HOME=/data/model-cache/huggingface
+SENTENCE_TRANSFORMERS_HOME=/data/model-cache/sentence-transformers
+TORCH_HOME=/data/model-cache/torch
 ```
 
 `src/medagentcare/knowledge/data/*.db` 按当前策略是本地生成产物，不进入 Git，也不应直接依赖镜像内临时文件。生产环境可选择两种方式：

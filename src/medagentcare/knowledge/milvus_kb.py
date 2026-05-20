@@ -96,7 +96,19 @@ class MedicalKnowledgeBase:
         else:
             logger.info(f"Collection already exists: {collection_name}")
 
+        self._load_collection()
         self._initialized = True
+
+    def _load_collection(self) -> None:
+        """Ensure the collection is loaded before search/query operations."""
+        if not hasattr(self.milvus_client, "load_collection"):
+            return
+
+        try:
+            self.milvus_client.load_collection(collection_name=self.collection_name)
+            logger.debug(f"Collection loaded: {self.collection_name}")
+        except Exception as e:
+            logger.warning(f"Failed to load collection {self.collection_name}: {e}")
 
     def _chunk_text(self, text: str, chunk_size: int = 1024, overlap: int = 100) -> List[str]:
         """
@@ -205,6 +217,7 @@ class MedicalKnowledgeBase:
 
         # 检索
         try:
+            self._load_collection()
             results = self.milvus_client.search(
                 collection_name=self.collection_name,
                 data=[query_vector.tolist()],

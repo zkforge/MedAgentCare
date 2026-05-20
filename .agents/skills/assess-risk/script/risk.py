@@ -32,8 +32,26 @@ MEDIUM_KEYWORDS = {
 }
 
 
+def _coerce_int(value, default: int = 0) -> int:
+    """Convert loose LLM tool arguments such as "35" or "35岁" to int."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+
+    digits = "".join(ch for ch in str(value) if ch.isdigit())
+    if not digits:
+        return default
+    return int(digits)
+
+
 def assess_risk(symptoms: str, age: int = 0, duration_days: int = 0):
     """Assess symptom risk level using explicit triage rules."""
+    age = _coerce_int(age)
+    duration_days = _coerce_int(duration_days)
+
     terms = split_terms(symptoms)
     haystack = symptoms.strip()
     reasons = []

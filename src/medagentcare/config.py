@@ -5,6 +5,26 @@ Values are read from environment variables first so the project can run in
 Docker or on a server without editing source files.
 """
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+def _load_project_dotenv() -> None:
+    """Load the project `.env` for local runs without overriding real env vars."""
+    if os.getenv("MEDAGENTCARE_SKIP_DOTENV") == "1":
+        return
+
+    dotenv_path = os.getenv("MEDAGENTCARE_DOTENV_PATH")
+    if dotenv_path:
+        load_dotenv(dotenv_path, override=False)
+        return
+
+    project_root = Path(__file__).resolve().parents[2]
+    load_dotenv(project_root / ".env", override=False)
+
+
+_load_project_dotenv()
 
 
 def _get_env(name: str, default: str = "") -> str:
