@@ -106,7 +106,6 @@ medagentcare-import-knowledge
 
 - `src/medagentcare/research/deep_research_workflow.py`：DeepResearch 工作流。整合查询规划、知识库检索、网页搜索和证据综合。
 - `src/medagentcare/research/evidence_synthesizer.py`：研究报告结构和证据综合逻辑。
-- `src/medagentcare/research/knowledge_base.py`：另一套 Qdrant/embedding 知识库封装，偏研究链路使用。
 - `src/medagentcare/research/web_search.py`：医学网页搜索工具，封装搜索、抓取和简单结果结构。
 
 ## Skills 目录
