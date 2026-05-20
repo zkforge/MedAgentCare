@@ -77,21 +77,19 @@ TORCH_HOME=/Users/your-name/.cache/torch
 ## 本地运行
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+uv sync
 ```
 
 启动 CLI：
 
 ```bash
-medagentcare
+uv run medagentcare
 ```
 
 启动 FastAPI：
 
 ```bash
-uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
+uv run uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
 ```
 
 本地启动时，应用会自动读取项目根目录 `.env`。如果同名变量已经存在于进程环境中，真实环境变量优先，不会被 `.env` 覆盖。
@@ -100,7 +98,7 @@ uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
 
 ```bash
 export HF_ENDPOINT=https://hf-mirror.com
-uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
+uv run uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
 ```
 
 健康检查：
@@ -274,7 +272,7 @@ docker run --env-file .env -p 8000:8000 medagentcare:latest
 当前镜像默认入口为：
 
 ```bash
-uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
+.venv/bin/uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
 ```
 
 生产部署时建议把容器端口只暴露给内网或本机反向代理，由 Nginx、Caddy、Traefik 或云平台网关对外提供 HTTPS。Nginx 示例：
@@ -353,7 +351,7 @@ TORCH_HOME=/data/model-cache/torch
 医学文档位于 `src/medagentcare/knowledge/data/documents/`，这些 txt 文件是版本化源数据。导入 Milvus Lite：
 
 ```bash
-medagentcare-import-knowledge
+uv run medagentcare-import-knowledge
 ```
 
 `src/medagentcare/knowledge/data/*.db` 按当前策略视为本地生成产物，默认不纳入 Git，也不会进入 Docker build context。部署时需要在环境初始化阶段运行导入脚本，或通过 volume 挂载预生成的数据库。详见 `src/medagentcare/knowledge/data/README.md`。
@@ -363,7 +361,7 @@ medagentcare-import-knowledge
 离线回归测试命令：
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests
+uv run python -m unittest discover -s tests
 ```
 
 该命令覆盖运行配置读取、FastAPI `/health`、Skill 发现、医疗安全约束，以及 `/chat` 在 mock Swarm 下的错误边界和 `enable_swarm=False` 参数传递。
@@ -371,7 +369,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 基础编译检查命令：
 
 ```bash
-python3 -m compileall -q src tests
+uv run python -m compileall -q src tests .agents/skills
 ```
 
 上述检查不覆盖真实 LLM 调用、Mem0 连接、Milvus Lite 数据导入、网络搜索或 Docker 镜像运行。

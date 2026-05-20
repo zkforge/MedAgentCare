@@ -101,16 +101,9 @@ class RuntimeConfigTests(unittest.TestCase):
         project_root = Path(__file__).resolve().parents[1]
         pyproject = tomllib.loads((project_root / "pyproject.toml").read_text())
         dependencies = set(pyproject["project"]["dependencies"])
-        requirements = {
-            line.strip()
-            for line in (project_root / "requirements.txt").read_text().splitlines()
-            if line.strip() and not line.startswith("#")
-        }
 
         self.assertIn("pymilvus[milvus_lite]>=2.3.0", dependencies)
-        self.assertIn("pymilvus[milvus_lite]>=2.3.0", requirements)
         self.assertNotIn("pymilvus>=2.3.0", dependencies)
-        self.assertNotIn("pymilvus>=2.3.0", requirements)
 
 
 if __name__ == "__main__":

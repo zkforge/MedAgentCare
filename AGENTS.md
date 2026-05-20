@@ -15,19 +15,19 @@
 
 ```bash
 # 离线回归测试，不依赖真实 LLM、Mem0、Milvus 或外网搜索
-PYTHONPATH=src python3 -m unittest discover -s tests
+uv run python -m unittest discover -s tests
 
 # 基础编译检查
-python3 -m compileall -q src tests .agents/skills
+uv run python -m compileall -q src tests .agents/skills
 
 # 本地 CLI
-medagentcare
+uv run medagentcare
 
 # FastAPI
-uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
+uv run uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
 
 # 医学知识库导入
-medagentcare-import-knowledge
+uv run medagentcare-import-knowledge
 ```
 
 ## 根目录文件职责
@@ -36,8 +36,8 @@ medagentcare-import-knowledge
 - `TODO.md`：只记录尚未完成的完善项；已完成事项要从这里移除。
 - `AGENTS.md`：面向代码 Agent 的开发地图和文件职责说明。
 - `pyproject.toml`：正式包元数据、依赖、`src/` 包发现规则、console scripts 和包数据配置。
-- `requirements.txt`：Dockerfile 当前使用的依赖安装清单。
-- `Dockerfile`：生产镜像基础定义，默认运行 `uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000`。
+- `uv.lock`：uv 解析出的依赖锁文件；本地和 Docker 安装都应使用它保持版本一致。
+- `Dockerfile`：生产镜像基础定义，使用 `uv sync --locked` 安装依赖，默认运行 `.venv/bin/uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000`。
 - `.env.example`：运行时环境变量示例，不放真实密钥。
 - `.gitignore`：忽略本地环境、缓存、生成数据库和本地 Agent 设置。
 - `.dockerignore`：控制 Docker build context，避免带入本地缓存、密钥和生成数据库。
