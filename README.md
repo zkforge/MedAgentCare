@@ -343,12 +343,20 @@ medagentcare-import-knowledge
 
 ## 验证状态
 
-最近一次轻量验证命令：
+离线回归测试命令：
 
 ```bash
-python3 -m compileall -q .
+PYTHONPATH=src python3 -m unittest discover -s tests
 ```
 
-该命令用于检查 Python 文件能否完成基础编译。它不覆盖真实 LLM 调用、Mem0 连接、Milvus Lite 数据导入、网络搜索或 Docker 镜像运行。
+该命令覆盖运行配置读取、FastAPI `/health`、Skill 发现、医疗安全约束，以及 `/chat` 在 mock Swarm 下的错误边界和 `enable_swarm=False` 参数传递。
 
-尚未形成可重复的端到端验收测试，原因是当前环境缺少完整外部服务配置，且 `examples/test_all.py` 仍有历史漂移问题。端到端能力在补齐离线单元测试和集成测试前，不在 README 中声明为已验证。
+基础编译检查命令：
+
+```bash
+python3 -m compileall -q src tests
+```
+
+上述检查不覆盖真实 LLM 调用、Mem0 连接、Milvus Lite 数据导入、网络搜索或 Docker 镜像运行。
+
+尚未形成可重复的端到端验收测试，原因是当前环境缺少完整外部服务配置，且 `examples/test_all.py` 仍有历史漂移问题。端到端能力在补齐集成测试前，不在 README 中声明为已验证。
