@@ -5,9 +5,11 @@ The API layer is intentionally thin: it validates HTTP input, delegates the
 medical consultation flow to the existing Swarm pipeline, and returns the raw
 structured result for frontend or deployment integrations.
 """
-from typing import Any, Dict, Optional
+import os
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from medagentcare.config import LLM_CONFIG, MEM0_CONFIG
@@ -17,6 +19,36 @@ app = FastAPI(
     title="MedAgentCare API",
     version="0.1.0",
     description="HTTP API for the MedAgentCare multi-agent medical assistant.",
+)
+
+
+def _parse_cors_origins() -> List[str]:
+    """Read CORS origins from env, falling back to common local dev ports.
+
+    Set ``MEDAGENTCARE_CORS_ORIGINS`` to a comma-separated list of origins
+    (or ``*`` to allow any origin) when deploying the API behind a proxy
+    that does not share the frontend domain.
+    """
+    raw = os.environ.get("MEDAGENTCARE_CORS_ORIGINS", "").strip()
+    if not raw:
+        return [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+        ]
+    if raw == "*":
+        return ["*"]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+_cors_origins = _parse_cors_origins()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_origins != ["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 

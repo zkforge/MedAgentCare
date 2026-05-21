@@ -17,11 +17,11 @@ MedAgentCare 是一个多 Agent 医疗咨询原型项目，代码包含交互式
 - `src/medagentcare/knowledge/`：Milvus Lite 知识库封装和 txt 文档导入脚本。
 - `.agents/skills/`：9 个 Skill 的 `SKILL.md` 元数据和可加载 `script/*.py` 实现。
 - `Dockerfile` / `.dockerignore` / `.env.example`：容器部署基础文件。
+- `frontend/`：Vite + React + TypeScript 前端演示页，调用 FastAPI `/health` 和 `/chat`。
 
 当前限制：
 
 - 医疗知识库、LLM、Mem0、网络搜索依赖本地环境或外部服务，部署前必须显式配置。
-- README 只记录可以从代码、配置或命令验证的状态；尚未验证的能力统一放入 TODO，不写成已验证结论。
 
 ## 目录结构
 
@@ -42,7 +42,7 @@ MedAgentCare 是一个多 Agent 医疗咨询原型项目，代码包含交互式
 │   ├── research/                  # DeepResearch 工作流和证据综合
 │   ├── constraints/               # Agent/Swarm 约束配置
 │   └── validation/                # 输出验证和自动修复模块
-└── TODO.md                        # 待完善项
+└── frontend/                      # 前端演示页
 ```
 
 ## 配置
@@ -91,6 +91,28 @@ uv run medagentcare
 ```bash
 uv run uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
 ```
+
+启动前端演示页：
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+前端默认请求 `http://127.0.0.1:8000`。如需改为其他后端地址：
+
+```bash
+VITE_API_BASE_URL=http://127.0.0.1:8000 npm run dev
+```
+
+API 默认允许 Vite 常见开发端口跨域访问，包括 `http://localhost:5173`、`http://127.0.0.1:5173`、`http://localhost:4173` 和 `http://127.0.0.1:4173`。部署到不同域名时，可以用逗号分隔设置允许来源：
+
+```bash
+MEDAGENTCARE_CORS_ORIGINS=https://app.example.com,https://admin.example.com
+```
+
+开发调试也可以临时设置 `MEDAGENTCARE_CORS_ORIGINS=*`，生产环境不建议这样配置。
 
 本地启动时，应用会自动读取项目根目录 `.env`。如果同名变量已经存在于进程环境中，真实环境变量优先，不会被 `.env` 覆盖。
 

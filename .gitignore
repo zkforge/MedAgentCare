@@ -47,6 +47,13 @@ env/
 .coverage
 htmlcov/
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
 # 记忆数据
 /tmp/qdrant/
 .mem0/
