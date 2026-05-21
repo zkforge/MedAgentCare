@@ -11,7 +11,7 @@ SwarmCoordinator：Swarm 入口和智能路由
 import asyncio
 import uuid
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Awaitable, Callable, Dict, Any, Optional, List
 from loguru import logger
 
 from medagentcare.core import LLMClient
@@ -20,6 +20,9 @@ from .lead_agent import LeadAgent
 from .events import Event, EventType
 from medagentcare.agents import ConsultationAgent, DiagnosticAgent, ResearchAgent
 from medagentcare.memory import SessionSummaryManager, SessionSummary, ShortTermMemory, LongTermMemory
+
+
+ProgressCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
 class SwarmCoordinator:
@@ -41,10 +44,12 @@ class SwarmCoordinator:
     def __init__(
         self,
         llm_client: Optional[LLMClient] = None,
-        enable_swarm: bool = True
+        enable_swarm: bool = True,
+        progress_callback: Optional[ProgressCallback] = None
     ):
         self.llm_client = llm_client or LLMClient()
         self.enable_swarm = enable_swarm
+        self.progress_callback = progress_callback
 
         # 初始化 Agent
         self.lead_agent = LeadAgent(llm_client=self.llm_client)
@@ -72,6 +77,31 @@ class SwarmCoordinator:
 
         logger.info(f"SwarmCoordinator initialized with {len(self.worker_pool)} workers")
         logger.info(f"Memory system: short_term={self.short_term_memory.storage_type}, long_term={'enabled' if self.long_term_memory.enabled else 'disabled'}")
+
+    async def _emit_progress(
+        self,
+        stage: str,
+        title: str,
+        detail: str = "",
+        status: str = "running",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Emit a user-facing runtime progress event if SSE is attached."""
+        if self.progress_callback is None:
+            return
+
+        payload = {
+            "timestamp": datetime.now().isoformat(),
+            "stage": stage,
+            "title": title,
+            "detail": detail,
+            "status": status,
+            "metadata": metadata or {},
+        }
+        try:
+            await self.progress_callback(payload)
+        except Exception as exc:
+            logger.warning(f"Failed to emit progress event: {exc}")
 
     def _get_agent_by_id(self, agent_id: str):
         """根据 agent_id 返回对应的 Agent 实例"""
@@ -104,8 +134,20 @@ class SwarmCoordinator:
             session_id = f"{start_time.strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"
 
         logger.info(f"Processing question (session={session_id}): {question[:50]}...")
+        await self._emit_progress(
+            stage="request_received",
+            title="收到咨询请求",
+            detail=f"会话 {session_id} 已开始处理。",
+            metadata={"session_id": session_id},
+        )
 
         # ===== 统一的记忆检索（所有模式都使用）=====
+        await self._emit_progress(
+            stage="memory_lookup",
+            title="检索会话记忆",
+            detail="正在读取当前会话历史和相似历史案例。",
+        )
+
         # 1. 检索短期记忆（当前会话历史）
         recent_history = self.short_term_memory.get_recent_messages(
             session_id=session_id,
@@ -140,11 +182,34 @@ class SwarmCoordinator:
             ]
             logger.info(f"Found {len(similar_memories)} similar historical cases from long-term memory")
 
+        await self._emit_progress(
+            stage="memory_lookup",
+            title="记忆检索完成",
+            detail=f"短期历史 {len(recent_history)} 条，相似历史案例 {len(similar_memories)} 条。",
+            status="completed",
+            metadata={
+                "recent_history_count": len(recent_history),
+                "similar_memory_count": len(similar_memories),
+            },
+        )
+
         # Step 1: LeadAgent 分解任务
+        await self._emit_progress(
+            stage="lead_assessment",
+            title="分析问题复杂度",
+            detail="LeadAgent 正在判断是否需要多 Agent 协作。",
+        )
         assessment = await self.lead_agent.assess_and_decompose(question, enhanced_context)
         subtasks = assessment.get("subtasks", [])
 
         logger.info(f"LeadAgent 分解任务：{len(subtasks)} 个")
+        await self._emit_progress(
+            stage="lead_assessment",
+            title="任务拆分完成",
+            detail=f"LeadAgent 生成 {len(subtasks)} 个子任务。",
+            status="completed",
+            metadata={"subtasks": subtasks},
+        )
 
         # Step 2: 根据任务数量路由
         final_answer = None
@@ -162,6 +227,12 @@ class SwarmCoordinator:
                 agent = self.consultation_agent
 
             logger.info(f"Route: Single Agent ({agent_id})")
+            await self._emit_progress(
+                stage="routing",
+                title="进入单 Agent 路径",
+                detail=f"问题已路由到 {agent.agent_id}。",
+                metadata={"agent_id": agent.agent_id},
+            )
             mode = "single_agent"
             result = await agent.process({
                 'question': question,
@@ -187,6 +258,12 @@ class SwarmCoordinator:
         elif len(subtasks) >= 2 and self.enable_swarm:
             # 多任务 → 启动 Swarm
             logger.info(f"Route: Swarm (Multi-Agent Collaboration) - {len(subtasks)} tasks")
+            await self._emit_progress(
+                stage="routing",
+                title="进入 Swarm 协作路径",
+                detail=f"将并行执行 {len(subtasks)} 个子任务。",
+                metadata={"subtasks_count": len(subtasks)},
+            )
             mode = "swarm"
             result = await self._process_with_swarm(
                 question=question,
@@ -209,6 +286,12 @@ class SwarmCoordinator:
                 logger.info("Swarm disabled, fallback to ConsultationAgent")
                 mode = "disabled_swarm"
 
+            await self._emit_progress(
+                stage="routing",
+                title="进入通用咨询路径",
+                detail="将由 ConsultationAgent 直接处理该问题。",
+                metadata={"mode": mode},
+            )
             result = await self.consultation_agent.process({
                 'question': question,
                 'context': enhanced_context,
@@ -238,9 +321,29 @@ class SwarmCoordinator:
                 }
             )
             logger.info(f"Saved to long-term memory (session={session_id}, mode={mode})")
+            await self._emit_progress(
+                stage="memory_save",
+                title="保存会话摘要",
+                detail="已尝试写入长期记忆。",
+                status="completed",
+                metadata={"mode": mode},
+            )
         except Exception as e:
             logger.error(f"Failed to save to long-term memory: {e}")
+            await self._emit_progress(
+                stage="memory_save",
+                title="长期记忆保存失败",
+                detail=str(e),
+                status="warning",
+                metadata={"mode": mode},
+            )
 
+        await self._emit_progress(
+            stage="completed",
+            title="咨询处理完成",
+            detail="最终回答已生成。",
+            status="completed",
+        )
         return result
 
     async def _process_with_swarm(
@@ -281,8 +384,30 @@ class SwarmCoordinator:
         # Step 1: LeadAgent 分解任务
         subtasks = self.lead_agent.create_subtasks(assessment, shared_context)
         logger.info(f"Created {len(subtasks)} subtasks")
+        await self._emit_progress(
+            stage="subtask_created",
+            title="创建协作子任务",
+            detail=f"已创建 {len(subtasks)} 个子任务。",
+            status="completed",
+            metadata={
+                "subtasks": [
+                    {
+                        "id": subtask.id,
+                        "type": subtask.type,
+                        "assigned_agent": subtask.assigned_agent,
+                    }
+                    for subtask in subtasks
+                ]
+            },
+        )
 
         # Step 2: Worker 执行分配的任务（并行）
+        await self._emit_progress(
+            stage="worker_execution",
+            title="启动 Worker Agent",
+            detail="正在并行执行已分配的子任务。",
+            metadata={"workers": [worker.agent_id for worker in self.worker_pool]},
+        )
         tasks = []
         for worker in self.worker_pool:
             task = asyncio.create_task(
@@ -300,10 +425,16 @@ class SwarmCoordinator:
         except asyncio.TimeoutError:
             timeout_occurred = True
             logger.warning("Swarm execution timeout (90s)")
+            await self._emit_progress(
+                stage="worker_execution",
+                title="部分 Agent 执行超时",
+                detail="已超过 Swarm Worker 等待时间，将基于已完成结果继续汇总。",
+                status="warning",
+            )
             # 记录哪些 Agent 已完成，哪些未完成
             completed_agents = list(shared_context.agent_contributions.keys())
             claimed_tasks = [
-                (subtask.assigned_to, subtask.type)
+                (subtask.assigned_agent, subtask.type)
                 for subtask in shared_context.task_decomposition.values()
                 if subtask.status.value == "claimed"
             ]
@@ -312,10 +443,23 @@ class SwarmCoordinator:
 
         # Step 3: LeadAgent 汇总结果
         # 即使超时，也尝试汇总已完成的部分结果
+        await self._emit_progress(
+            stage="synthesis",
+            title="汇总多 Agent 结果",
+            detail="LeadAgent 正在整合各子任务输出。",
+            metadata={"timeout_occurred": timeout_occurred},
+        )
         final_answer = await self.lead_agent.synthesize_results(
             question=question,
             shared_context=shared_context,
             timeout_occurred=timeout_occurred
+        )
+        await self._emit_progress(
+            stage="synthesis",
+            title="结果汇总完成",
+            detail="最终医学咨询回答已生成。",
+            status="completed",
+            metadata={"timeout_occurred": timeout_occurred},
         )
 
         end_time = datetime.now()
@@ -331,8 +475,20 @@ class SwarmCoordinator:
                 end_time=end_time
             )
             self.session_manager.save_summary(summary)
+            await self._emit_progress(
+                stage="summary",
+                title="保存本地会话摘要",
+                detail="已保存本地 SessionSummary。",
+                status="completed",
+            )
         except Exception as e:
             logger.error(f"Failed to generate session summary: {e}")
+            await self._emit_progress(
+                stage="summary",
+                title="本地会话摘要保存失败",
+                detail=str(e),
+                status="warning",
+            )
 
         # 注意：短期记忆已经在 Agent Loop 中保存了，这里不需要重复保存
         # Agent Loop 保存了完整的对话历史（user + assistant + tool messages）
@@ -353,9 +509,23 @@ class SwarmCoordinator:
             )
 
             logger.info(f"Saved to Mem0 long-term memory (session={session_id})")
+            await self._emit_progress(
+                stage="memory_save",
+                title="保存长期记忆",
+                detail="已尝试写入 Mem0 长期记忆。",
+                status="completed",
+                metadata={"session_id": session_id},
+            )
 
         except Exception as e:
             logger.error(f"Failed to save to Mem0: {e}")
+            await self._emit_progress(
+                stage="memory_save",
+                title="长期记忆保存失败",
+                detail=str(e),
+                status="warning",
+                metadata={"session_id": session_id},
+            )
 
         # 发布 Swarm 完成事件
         shared_context.publish_event(Event(
@@ -366,6 +536,17 @@ class SwarmCoordinator:
                 "agents_count": len(shared_context.agent_contributions)
             }
         ))
+
+        await self._emit_progress(
+            stage="completed",
+            title="咨询处理完成",
+            detail="Swarm 协作流程已完成。",
+            status="completed",
+            metadata={
+                "agents_count": len(shared_context.agent_contributions),
+                "duration": (end_time - start_time).total_seconds(),
+            },
+        )
 
         # 返回结果
         completed_agents = list(shared_context.agent_contributions.keys())
@@ -418,6 +599,16 @@ class SwarmCoordinator:
             tasks = []
             for subtask in assigned_tasks:
                 logger.info(f"{worker.agent_id}: Starting {subtask.type}")
+                await self._emit_progress(
+                    stage="subtask_started",
+                    title=f"{worker.agent_id} 开始处理子任务",
+                    detail=subtask.description,
+                    metadata={
+                        "agent_id": worker.agent_id,
+                        "subtask_id": subtask.id,
+                        "subtask_type": subtask.type,
+                    },
+                )
                 shared_context.start_subtask(subtask.id)
 
                 task = asyncio.create_task(
@@ -437,8 +628,30 @@ class SwarmCoordinator:
             result = await worker.process_subtask(subtask)
             shared_context.complete_subtask(subtask.id, worker.agent_id, result)
             logger.info(f"{worker.agent_id}: Completed {subtask.type}")
+            await self._emit_progress(
+                stage="subtask_completed",
+                title=f"{worker.agent_id} 完成子任务",
+                detail=subtask.description,
+                status="completed",
+                metadata={
+                    "agent_id": worker.agent_id,
+                    "subtask_id": subtask.id,
+                    "subtask_type": subtask.type,
+                },
+            )
         except Exception as e:
             logger.error(f"{worker.agent_id}: Error in {subtask.type}: {e}")
+            await self._emit_progress(
+                stage="subtask_failed",
+                title=f"{worker.agent_id} 子任务失败",
+                detail=str(e),
+                status="error",
+                metadata={
+                    "agent_id": worker.agent_id,
+                    "subtask_id": subtask.id,
+                    "subtask_type": subtask.type,
+                },
+            )
 
     def _extract_suggestions(self, final_answer: str) -> List[str]:
         """从最终答案中提取建议（简化实现）"""
@@ -465,7 +678,8 @@ async def process_with_swarm(
     question: str,
     context: Optional[Dict[str, Any]] = None,
     enable_swarm: bool = True,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    progress_callback: Optional[ProgressCallback] = None
 ) -> Dict[str, Any]:
     """
     便捷函数：使用 Swarm 处理问题
@@ -475,9 +689,13 @@ async def process_with_swarm(
         context: 额外上下文
         enable_swarm: 是否启用 Swarm（False 则总是用单 Agent）
         session_id: 会话ID（如果提供，将使用该ID而不是生成新的）
+        progress_callback: 可选进度事件回调，用于 SSE 输出关键运行状态
 
     Returns:
         处理结果
     """
-    coordinator = SwarmCoordinator(enable_swarm=enable_swarm)
+    coordinator = SwarmCoordinator(
+        enable_swarm=enable_swarm,
+        progress_callback=progress_callback,
+    )
     return await coordinator.process(question, context, session_id=session_id)

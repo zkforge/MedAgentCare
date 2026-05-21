@@ -1,18 +1,24 @@
 """
 FastAPI entrypoint for MedAgentCare.
 
-The API layer is intentionally thin: it validates HTTP input, delegates the
-medical consultation flow to the existing Swarm pipeline, and returns the raw
-structured result for frontend or deployment integrations.
+The API layer validates HTTP input, delegates the medical consultation flow to
+the existing Swarm pipeline, and exposes both regular JSON and SSE interfaces
+for frontend or deployment integrations.
 """
+import asyncio
+import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from medagentcare.config import LLM_CONFIG, MEM0_CONFIG
+
+
+ProgressCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
 app = FastAPI(
@@ -61,6 +67,126 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = Field(default=None, description="Optional conversation session id.")
 
 
+def _sse_event(event: str, data: Dict[str, Any]) -> str:
+    """Serialize one Server-Sent Events frame with JSON payload."""
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+def _drain_progress_queue(progress_queue: asyncio.Queue[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Collect queued progress records without blocking the response."""
+    records = []
+    while True:
+        try:
+            records.append(progress_queue.get_nowait())
+        except asyncio.QueueEmpty:
+            return records
+
+
+async def _run_chat_pipeline(
+    request: ChatRequest,
+    progress_callback: Optional[ProgressCallback] = None,
+) -> Dict[str, Any]:
+    """Run the shared Swarm pipeline for JSON and SSE entrypoints."""
+    from medagentcare.swarm import process_with_swarm
+
+    return await process_with_swarm(
+        question=request.question,
+        context=request.context or None,
+        enable_swarm=request.enable_swarm,
+        session_id=request.session_id,
+        progress_callback=progress_callback,
+    )
+
+
+async def _stream_chat_events(
+    request: ChatRequest,
+    heartbeat_interval: float = 10.0,
+) -> AsyncIterator[str]:
+    """Stream lifecycle events while the existing consultation pipeline runs.
+
+    SSE keeps the HTTP response active during slow multi-agent/LLM work. The
+    pipeline emits high-level progress records for user-visible runtime state,
+    then returns the final consultation result.
+    """
+    progress_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=200)
+
+    async def publish_progress(payload: Dict[str, Any]) -> None:
+        try:
+            progress_queue.put_nowait(payload)
+        except asyncio.QueueFull:
+            pass
+
+    task = asyncio.create_task(_run_chat_pipeline(request, publish_progress))
+    yield _sse_event(
+        "start",
+        {
+            "session_id": request.session_id,
+            "enable_swarm": request.enable_swarm,
+        },
+    )
+
+    progress_waiter: Optional[asyncio.Task[Dict[str, Any]]] = None
+    try:
+        heartbeat_count = 0
+        progress_waiter = asyncio.create_task(progress_queue.get())
+
+        while True:
+            wait_targets = {task}
+            if progress_waiter is not None:
+                wait_targets.add(progress_waiter)
+
+            done, _ = await asyncio.wait(
+                wait_targets,
+                timeout=heartbeat_interval,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if done:
+                if progress_waiter is not None and progress_waiter in done:
+                    yield _sse_event("progress", progress_waiter.result())
+                    for payload in _drain_progress_queue(progress_queue):
+                        yield _sse_event("progress", payload)
+
+                    if task.done():
+                        progress_waiter = None
+                    else:
+                        progress_waiter = asyncio.create_task(progress_queue.get())
+
+                if task in done:
+                    break
+                continue
+
+            heartbeat_count += 1
+            yield _sse_event("heartbeat", {"count": heartbeat_count})
+
+        if progress_waiter is not None and not progress_waiter.done():
+            progress_waiter.cancel()
+
+        for payload in _drain_progress_queue(progress_queue):
+            yield _sse_event("progress", payload)
+
+        result = await task
+        yield _sse_event("result", result)
+        yield _sse_event("done", {"ok": True})
+    except asyncio.CancelledError:
+        task.cancel()
+        raise
+    except ValueError as exc:
+        yield _sse_event("error", {"status_code": 400, "detail": str(exc)})
+    except Exception as exc:
+        yield _sse_event(
+            "error",
+            {
+                "status_code": 500,
+                "detail": f"consultation failed: {exc}",
+            },
+        )
+    finally:
+        if progress_waiter is not None and not progress_waiter.done():
+            progress_waiter.cancel()
+
+
 @app.get("/health")
 async def health() -> Dict[str, Any]:
     """Return deployment health and configuration readiness."""
@@ -76,15 +202,21 @@ async def health() -> Dict[str, Any]:
 async def chat(request: ChatRequest) -> Dict[str, Any]:
     """Run one consultation turn through the existing Swarm pipeline."""
     try:
-        from medagentcare.swarm import process_with_swarm
-
-        return await process_with_swarm(
-            question=request.question,
-            context=request.context or None,
-            enable_swarm=request.enable_swarm,
-            session_id=request.session_id,
-        )
+        return await _run_chat_pipeline(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"consultation failed: {exc}") from exc
+
+
+@app.post("/chat/stream")
+async def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """Run one consultation turn and stream progress as Server-Sent Events."""
+    return StreamingResponse(
+        _stream_chat_events(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

@@ -33,7 +33,22 @@ type ChatResponse = {
   total_time?: number;
   timeout_occurred?: boolean;
   swarm_metadata?: Record<string, unknown>;
+  progress_events?: RuntimeProgressEvent[];
   [key: string]: unknown;
+};
+
+type RuntimeProgressEvent = {
+  timestamp?: string;
+  stage?: string;
+  title?: string;
+  detail?: string;
+  status?: "running" | "completed" | "warning" | "error" | string;
+  metadata?: Record<string, unknown>;
+};
+
+type StreamEvent = {
+  event: string;
+  data: unknown;
 };
 
 type ChatMessage = {
@@ -116,6 +131,78 @@ function firstLineTitle(text: string) {
   return normalized.length > 30 ? `${normalized.slice(0, 30)}...` : normalized;
 }
 
+function parseSseFrame(frame: string): StreamEvent | null {
+  const lines = frame.split(/\r?\n/);
+  let event = "message";
+  const dataLines: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) return null;
+
+  try {
+    return { event, data: JSON.parse(dataLines.join("\n")) };
+  } catch {
+    return { event, data: dataLines.join("\n") };
+  }
+}
+
+function extractSseEvents(buffer: string) {
+  const events: StreamEvent[] = [];
+  let cursor = buffer;
+  let boundaryIndex = cursor.indexOf("\n\n");
+
+  while (boundaryIndex >= 0) {
+    const frame = cursor.slice(0, boundaryIndex).trim();
+    cursor = cursor.slice(boundaryIndex + 2);
+    const event = parseSseFrame(frame);
+    if (event) events.push(event);
+    boundaryIndex = cursor.indexOf("\n\n");
+  }
+
+  return { events, remaining: cursor };
+}
+
+function formatProgressEvent(event: RuntimeProgressEvent) {
+  const timestamp = event.timestamp
+    ? new Date(event.timestamp).toLocaleTimeString("zh-CN", { hour12: false })
+    : "--:--:--";
+  const statusText =
+    event.status === "completed"
+      ? "完成"
+      : event.status === "warning"
+        ? "注意"
+        : event.status === "error"
+          ? "失败"
+          : "进行中";
+  const title = event.title ?? event.stage ?? "运行事件";
+  const detail = event.detail ? `：${event.detail}` : "";
+  return `- ${timestamp} [${statusText}] ${title}${detail}`;
+}
+
+function buildStreamingContent(
+  progressEvents: RuntimeProgressEvent[],
+  status: string,
+  answer?: string,
+) {
+  const progressLines = progressEvents.map(formatProgressEvent);
+  const progressBlock = progressLines.length
+    ? progressLines.join("\n")
+    : "- 等待后端返回运行进度...";
+  if (answer) {
+    return `### 运行进度\n\n${progressBlock}\n\n### 最终回答\n\n${answer}`;
+  }
+  return `### 运行进度\n\n${progressBlock}\n\n${status}`;
+}
+
 export default function App() {
   const [sessions, setSessions] = useState<ChatSession[]>(() => loadSessions());
   const [activeSessionId, setActiveSessionId] = useState(() => sessions[0]?.id ?? createSession().id);
@@ -178,6 +265,23 @@ export default function App() {
     );
   }
 
+  function patchMessage(sessionId: string, messageId: string, patch: Partial<ChatMessage>) {
+    const updatedAt = new Date().toISOString();
+    setSessions((current) =>
+      current.map((session) =>
+        session.id === sessionId
+          ? {
+              ...session,
+              updatedAt,
+              messages: session.messages.map((message) =>
+                message.id === messageId ? { ...message, ...patch } : message,
+              ),
+            }
+          : session,
+      ),
+    );
+  }
+
   function startSession() {
     const session = createSession();
     setSessions((current) => [session, ...current]);
@@ -217,11 +321,19 @@ export default function App() {
       createdAt: now,
     };
 
+    const assistantMessageId = createId("message");
+    const assistantMessage: ChatMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      content: buildStreamingContent([], "正在建立 SSE 连接..."),
+      createdAt: now,
+    };
+
     const optimisticSession: ChatSession = {
       ...activeSession,
       title: activeSession.messages.length === 0 ? firstLineTitle(submittedQuestion) : activeSession.title,
       updatedAt: now,
-      messages: [...activeSession.messages, userMessage],
+      messages: [...activeSession.messages, userMessage, assistantMessage],
     };
 
     updateSession(optimisticSession);
@@ -229,10 +341,10 @@ export default function App() {
     setIsSending(true);
 
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 120000);
+    const progressEvents: RuntimeProgressEvent[] = [];
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat`, {
+      const response = await fetch(`${API_BASE_URL}/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -244,44 +356,84 @@ export default function App() {
         signal: controller.signal,
       });
 
-      const data = (await response.json()) as ChatResponse;
       if (!response.ok) {
-        throw new Error(typeof data.detail === "string" ? data.detail : `request failed: ${response.status}`);
+        throw new Error(`request failed: ${response.status}`);
+      }
+      if (!response.body) {
+        throw new Error("stream response body is empty");
       }
 
-      const assistantMessage: ChatMessage = {
-        id: createId("message"),
-        role: "assistant",
-        content: data.answer || JSON.stringify(data, null, 2),
-        createdAt: new Date().toISOString(),
-        response: data,
-      };
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      updateSession({
-        ...optimisticSession,
-        updatedAt: assistantMessage.createdAt,
-        messages: [...optimisticSession.messages, assistantMessage],
-      });
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parsed = extractSseEvents(buffer);
+        buffer = parsed.remaining;
+
+        for (const streamEvent of parsed.events) {
+          if (streamEvent.event === "progress" && typeof streamEvent.data === "object" && streamEvent.data) {
+            progressEvents.push(streamEvent.data as RuntimeProgressEvent);
+            const visibleEvents = progressEvents.slice(-80);
+            patchMessage(
+              activeSession.id,
+              assistantMessageId,
+              {
+                content: buildStreamingContent(visibleEvents, "正在生成最终回答..."),
+                response: { progress_events: visibleEvents },
+              },
+            );
+            continue;
+          }
+
+          if (streamEvent.event === "heartbeat") {
+            const visibleEvents = progressEvents.slice(-80);
+            patchMessage(activeSession.id, assistantMessageId, {
+              content: buildStreamingContent(visibleEvents, "后端仍在执行，请等待..."),
+              response: { progress_events: visibleEvents },
+            });
+            continue;
+          }
+
+          if (streamEvent.event === "result" && typeof streamEvent.data === "object" && streamEvent.data) {
+            const data = streamEvent.data as ChatResponse;
+            const visibleEvents = progressEvents.slice(-80);
+            patchMessage(activeSession.id, assistantMessageId, {
+              content: buildStreamingContent(
+                visibleEvents,
+                "已完成",
+                data.answer || JSON.stringify(data, null, 2),
+              ),
+              createdAt: new Date().toISOString(),
+              response: { ...data, progress_events: visibleEvents },
+            });
+            continue;
+          }
+
+          if (streamEvent.event === "error" && typeof streamEvent.data === "object" && streamEvent.data) {
+            const detail = (streamEvent.data as { detail?: unknown }).detail;
+            throw new Error(typeof detail === "string" ? detail : "请求失败");
+          }
+        }
+      }
     } catch (error) {
       const content =
         error instanceof Error && error.name === "AbortError"
-          ? "请求超时。该接口可能触发多 Agent、LLM、知识库或网络搜索，请稍后重试。"
+          ? "请求已取消。"
           : error instanceof Error
             ? error.message
             : "请求失败";
-      const errorMessage: ChatMessage = {
-        id: createId("message"),
+      patchMessage(activeSession.id, assistantMessageId, {
         role: "error",
         content,
         createdAt: new Date().toISOString(),
-      };
-      updateSession({
-        ...optimisticSession,
-        updatedAt: errorMessage.createdAt,
-        messages: [...optimisticSession.messages, errorMessage],
       });
     } finally {
-      window.clearTimeout(timeoutId);
+      controller.abort();
       setIsSending(false);
     }
   }
