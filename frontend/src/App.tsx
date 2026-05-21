@@ -1,17 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   AlertTriangle,
   Brain,
+  CheckCircle2,
+  CircleAlert,
+  CircleDotDashed,
   Clipboard,
+  Database,
+  GitBranch,
   Github,
   HeartPulse,
+  ListChecks,
   Loader2,
   MessageSquare,
-  MessageSquarePlus,
+  Network,
   Plus,
   Send,
   Stethoscope,
+  Timer,
   Trash2,
 } from "lucide-react";
 
@@ -56,6 +63,9 @@ type ChatMessage = {
   role: "user" | "assistant" | "error";
   content: string;
   createdAt: string;
+  isStreaming?: boolean;
+  progressEvents?: RuntimeProgressEvent[];
+  progressStatus?: string;
   response?: ChatResponse;
 };
 
@@ -77,6 +87,9 @@ const EXAMPLE_QUESTIONS = [
   "长期失眠、白天乏力，最近压力较大，有哪些可能原因和改善建议？",
   "体检发现血压偏高，平时没有症状，下一步应该怎么管理？",
 ];
+const INLINE_MARKDOWN_COMPONENTS = {
+  p: ({ children }: { children?: ReactNode }) => <>{children}</>,
+};
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -131,6 +144,35 @@ function firstLineTitle(text: string) {
   return normalized.length > 30 ? `${normalized.slice(0, 30)}...` : normalized;
 }
 
+function answerContentOnly(content: string) {
+  const lines = content.split(/\r?\n/);
+  const output: string[] = [];
+  let skippingStructuredSection = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const bracketHeading = trimmed.match(/^#{0,6}\s*(?:\*\*)?【(.+?)】(?:\*\*)?\s*$/);
+    const plainHeading = trimmed.match(/^#{1,6}\s*(?:\*\*)?(回答|核心建议|免责声明)(?:[：:])?(?:\*\*)?\s*$/);
+    const headingName = (bracketHeading?.[1] ?? plainHeading?.[1])?.replace(/[：:]/g, "").trim();
+
+    if (headingName === "核心建议" || headingName === "免责声明") {
+      skippingStructuredSection = true;
+      continue;
+    }
+
+    if (headingName) {
+      skippingStructuredSection = false;
+      if (headingName === "回答") continue;
+    }
+
+    if (!skippingStructuredSection) {
+      output.push(rawLine);
+    }
+  }
+
+  return output.join("\n").trim();
+}
+
 function parseSseFrame(frame: string): StreamEvent | null {
   const lines = frame.split(/\r?\n/);
   let event = "message";
@@ -171,36 +213,157 @@ function extractSseEvents(buffer: string) {
   return { events, remaining: cursor };
 }
 
-function formatProgressEvent(event: RuntimeProgressEvent) {
-  const timestamp = event.timestamp
-    ? new Date(event.timestamp).toLocaleTimeString("zh-CN", { hour12: false })
-    : "--:--:--";
-  const statusText =
-    event.status === "completed"
-      ? "完成"
-      : event.status === "warning"
-        ? "注意"
-        : event.status === "error"
-          ? "失败"
-          : "进行中";
-  const title = event.title ?? event.stage ?? "运行事件";
-  const detail = event.detail ? `：${event.detail}` : "";
-  return `- ${timestamp} [${statusText}] ${title}${detail}`;
+function formatProgressTime(value?: string) {
+  if (!value) return "--:--:--";
+  return new Date(value).toLocaleTimeString("zh-CN", { hour12: false });
 }
 
-function buildStreamingContent(
-  progressEvents: RuntimeProgressEvent[],
-  status: string,
-  answer?: string,
-) {
-  const progressLines = progressEvents.map(formatProgressEvent);
-  const progressBlock = progressLines.length
-    ? progressLines.join("\n")
-    : "- 等待后端返回运行进度...";
-  if (answer) {
-    return `### 运行进度\n\n${progressBlock}\n\n### 最终回答\n\n${answer}`;
+function formatDuration(seconds?: number) {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return null;
+  if (seconds < 60) {
+    return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} 秒`;
   }
-  return `### 运行进度\n\n${progressBlock}\n\n${status}`;
+
+  const totalSeconds = Math.round(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return remainingSeconds > 0 ? `${minutes} 分 ${remainingSeconds} 秒` : `${minutes} 分`;
+}
+
+function progressElapsedSeconds(events: RuntimeProgressEvent[], totalTimeSeconds?: number) {
+  if (typeof totalTimeSeconds === "number" && Number.isFinite(totalTimeSeconds)) {
+    return totalTimeSeconds;
+  }
+
+  const timestamps = events
+    .map((event) => Date.parse(event.timestamp ?? ""))
+    .filter((timestamp) => Number.isFinite(timestamp));
+  if (timestamps.length < 2) return undefined;
+
+  return (timestamps[timestamps.length - 1] - timestamps[0]) / 1000;
+}
+
+function progressStatusLabel(status?: string) {
+  if (status === "completed") return "完成";
+  if (status === "warning") return "注意";
+  if (status === "error") return "失败";
+  return "进行中";
+}
+
+function progressStageLabel(stage?: string) {
+  const labels: Record<string, string> = {
+    request_received: "请求",
+    memory_lookup: "记忆",
+    lead_assessment: "分析",
+    routing: "路由",
+    subtask_created: "任务",
+    worker_execution: "执行",
+    subtask_started: "Agent",
+    subtask_completed: "Agent",
+    subtask_failed: "Agent",
+    synthesis: "汇总",
+    summary: "摘要",
+    memory_save: "保存",
+    completed: "完成",
+  };
+  return stage ? labels[stage] ?? "事件" : "事件";
+}
+
+function progressIcon(stage?: string, status?: string) {
+  if (status === "completed") return <CheckCircle2 size={16} />;
+  if (status === "warning" || status === "error") return <CircleAlert size={16} />;
+  if (status === "running") return <Loader2 size={16} className="spin" />;
+  if (stage === "memory_lookup" || stage === "memory_save") return <Database size={16} />;
+  if (stage === "lead_assessment") return <Brain size={16} />;
+  if (stage === "routing") return <GitBranch size={16} />;
+  if (stage === "subtask_created") return <ListChecks size={16} />;
+  if (stage === "worker_execution" || stage?.startsWith("subtask_")) return <Network size={16} />;
+  return <CircleDotDashed size={16} />;
+}
+
+function deriveProgressStatus(
+  event: RuntimeProgressEvent,
+  index: number,
+  total: number,
+  isStreaming?: boolean,
+) {
+  if (event.status === "completed" || event.status === "warning" || event.status === "error") {
+    return event.status;
+  }
+  if (!isStreaming || index < total - 1) {
+    return "completed";
+  }
+  return "running";
+}
+
+function ProgressTimeline({
+  events,
+  status,
+  isStreaming,
+  totalTimeSeconds,
+}: {
+  events: RuntimeProgressEvent[];
+  status?: string;
+  isStreaming?: boolean;
+  totalTimeSeconds?: number;
+}) {
+  const latestEvent = events.length ? events[events.length - 1] : undefined;
+  const displayEvents = events.map((event, index) => ({
+    ...event,
+    displayStatus: deriveProgressStatus(event, index, events.length, isStreaming),
+  }));
+  const completedCount = displayEvents.filter((event) => event.displayStatus === "completed").length;
+  const elapsedText = formatDuration(progressElapsedSeconds(events, totalTimeSeconds));
+  const summaryText = latestEvent?.title ?? status ?? "等待后端返回运行进度";
+  const summaryDetail = latestEvent?.detail ?? "SSE 连接已建立后会逐步显示关键执行事件。";
+  const completedSummary = [
+    `${events.length} 个事件`,
+    `${completedCount} 个完成`,
+    elapsedText ? `耗时 ${elapsedText}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <details className="progress-panel" open={isStreaming}>
+      <summary className="progress-summary">
+        <span className={`progress-summary-icon ${isStreaming ? "active" : "done"}`}>
+          {isStreaming ? <Loader2 size={16} className="spin" /> : <CheckCircle2 size={16} />}
+        </span>
+        <span>
+          <strong>{isStreaming ? summaryText : "执行轨迹"}</strong>
+          <small>{isStreaming ? summaryDetail : completedSummary}</small>
+        </span>
+      </summary>
+      <div className="progress-timeline">
+        {events.length === 0 ? (
+          <div className="progress-empty">
+            <Timer size={16} />
+            <span>{status ?? "等待后端返回运行进度"}</span>
+          </div>
+        ) : (
+          displayEvents.map((event, index) => (
+            <div className={`progress-step ${event.displayStatus}`} key={`${event.stage}-${index}`}>
+              <div className="progress-step-marker">{progressIcon(event.stage, event.displayStatus)}</div>
+              <div className="progress-step-body">
+                <div className="progress-step-heading">
+                  <span>{progressStageLabel(event.stage)}</span>
+                  <time>{formatProgressTime(event.timestamp)}</time>
+                  <em>{progressStatusLabel(event.displayStatus)}</em>
+                </div>
+                <strong>{event.title ?? event.stage ?? "运行事件"}</strong>
+                {event.detail ? <p>{event.detail}</p> : null}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </details>
+  );
+}
+
+function InlineMarkdown({ children }: { children: string }) {
+  return <ReactMarkdown components={INLINE_MARKDOWN_COMPONENTS}>{children}</ReactMarkdown>;
 }
 
 export default function App() {
@@ -325,8 +488,11 @@ export default function App() {
     const assistantMessage: ChatMessage = {
       id: assistantMessageId,
       role: "assistant",
-      content: buildStreamingContent([], "正在建立 SSE 连接..."),
+      content: "",
       createdAt: now,
+      isStreaming: true,
+      progressEvents: [],
+      progressStatus: "正在建立 SSE 连接...",
     };
 
     const optimisticSession: ChatSession = {
@@ -383,7 +549,8 @@ export default function App() {
               activeSession.id,
               assistantMessageId,
               {
-                content: buildStreamingContent(visibleEvents, "正在生成最终回答..."),
+                progressEvents: visibleEvents,
+                progressStatus: "正在生成最终回答...",
                 response: { progress_events: visibleEvents },
               },
             );
@@ -393,7 +560,8 @@ export default function App() {
           if (streamEvent.event === "heartbeat") {
             const visibleEvents = progressEvents.slice(-80);
             patchMessage(activeSession.id, assistantMessageId, {
-              content: buildStreamingContent(visibleEvents, "后端仍在执行，请等待..."),
+              progressEvents: visibleEvents,
+              progressStatus: "后端仍在执行，请等待...",
               response: { progress_events: visibleEvents },
             });
             continue;
@@ -403,12 +571,11 @@ export default function App() {
             const data = streamEvent.data as ChatResponse;
             const visibleEvents = progressEvents.slice(-80);
             patchMessage(activeSession.id, assistantMessageId, {
-              content: buildStreamingContent(
-                visibleEvents,
-                "已完成",
-                data.answer || JSON.stringify(data, null, 2),
-              ),
+              content: data.answer || JSON.stringify(data, null, 2),
               createdAt: new Date().toISOString(),
+              isStreaming: false,
+              progressEvents: visibleEvents,
+              progressStatus: "已完成",
               response: { ...data, progress_events: visibleEvents },
             });
             continue;
@@ -430,6 +597,7 @@ export default function App() {
       patchMessage(activeSession.id, assistantMessageId, {
         role: "error",
         content,
+        isStreaming: false,
         createdAt: new Date().toISOString(),
       });
     } finally {
@@ -529,20 +697,38 @@ export default function App() {
                     <span>{message.role === "user" ? "用户" : message.role === "assistant" ? "MedAgentCare" : "错误"}</span>
                     <time>{formatDate(message.createdAt)}</time>
                   </div>
-                  <div className="message-content">
-                    {message.role === "assistant" ? <ReactMarkdown>{message.content}</ReactMarkdown> : <p>{message.content}</p>}
+                  {message.role === "assistant" ? (
+                    <ProgressTimeline
+                      events={message.progressEvents ?? message.response?.progress_events ?? []}
+                      isStreaming={message.isStreaming}
+                      status={message.progressStatus}
+                      totalTimeSeconds={message.response?.total_time}
+                    />
+                  ) : null}
+                  <div className={`message-content ${message.role === "assistant" && message.content ? "message-answer" : ""}`}>
+                    {message.role === "assistant" ? (
+                      message.content ? (
+                        <ReactMarkdown>{answerContentOnly(message.content)}</ReactMarkdown>
+                      ) : null
+                    ) : (
+                      <p>{message.content}</p>
+                    )}
                   </div>
                   {message.response?.suggestions?.length ? (
                     <div className="suggestion-list">
                       {message.response.suggestions.map((item, index) => (
-                        <span key={`${item}-${index}`}>{item}</span>
+                        <span key={`${item}-${index}`}>
+                          <InlineMarkdown>{item}</InlineMarkdown>
+                        </span>
                       ))}
                     </div>
                   ) : null}
                   {message.response?.disclaimer ? (
                     <div className="message-disclaimer">
                       <AlertTriangle size={15} />
-                      {message.response.disclaimer}
+                      <span>
+                        <InlineMarkdown>{message.response.disclaimer}</InlineMarkdown>
+                      </span>
                     </div>
                   ) : null}
                 </div>

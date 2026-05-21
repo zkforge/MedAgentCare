@@ -4,8 +4,8 @@
 """
 from typing import Dict, Any
 from loguru import logger
-import re
 
+from medagentcare.response_sections import structure_medical_response
 from .base_agent import BaseAgent
 from .skill_registry_mixin import SkillRegistryMixin
 
@@ -125,25 +125,12 @@ class ConsultationAgent(BaseAgent, SkillRegistryMixin):
         """
         后处理：从最终响应中提取结构化信息
         """
-        # 提取核心建议
-        suggestions = []
-        suggestion_pattern = r'【核心建议】\s*\n((?:\d+\.\s*.+\n?)+)'
-        match = re.search(suggestion_pattern, final_response)
-
-        if match:
-            suggestion_text = match.group(1)
-            suggestion_lines = re.findall(r'\d+\.\s*(.+)', suggestion_text)
-            suggestions = [s.strip() for s in suggestion_lines if s.strip()]
-
-        # 提取免责声明
-        disclaimer_pattern = r'【免责声明】\s*\n(.+)'
-        disclaimer_match = re.search(disclaimer_pattern, final_response)
-        disclaimer = disclaimer_match.group(1) if disclaimer_match else \
-            "⚠️ 以上信息仅供参考，不能替代专业医生的诊断和治疗。如有疑虑，请及时就医。"
+        structured = structure_medical_response(final_response)
 
         result.update({
-            'suggestions': suggestions[:5],  # 最多5条
-            'disclaimer': disclaimer
+            'answer': structured.answer,
+            'suggestions': structured.suggestions,
+            'disclaimer': structured.disclaimer
         })
 
         return result

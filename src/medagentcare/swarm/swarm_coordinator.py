@@ -20,6 +20,7 @@ from .lead_agent import LeadAgent
 from .events import Event, EventType
 from medagentcare.agents import ConsultationAgent, DiagnosticAgent, ResearchAgent
 from medagentcare.memory import SessionSummaryManager, SessionSummary, ShortTermMemory, LongTermMemory
+from medagentcare.response_sections import structure_medical_response
 
 
 ProgressCallback = Callable[[Dict[str, Any]], Awaitable[None]]
@@ -548,10 +549,16 @@ class SwarmCoordinator:
             },
         )
 
+        structured = structure_medical_response(
+            final_answer,
+            fallback_suggestions=["请遵循医嘱，注意休息和营养"],
+            default_disclaimer="以上分析基于多个专业 Agent 的协作，仅供参考，不能替代医生诊断。",
+        )
+
         # 返回结果
         completed_agents = list(shared_context.agent_contributions.keys())
         result = {
-            'answer': final_answer,
+            'answer': structured.answer,
             'swarm_enabled': True,
             'session_id': session_id,
             'agents_involved': completed_agents,
@@ -561,8 +568,7 @@ class SwarmCoordinator:
             'timeout_occurred': timeout_occurred
         }
 
-        # 提取建议和免责声明（简化实现）
-        result['suggestions'] = self._extract_suggestions(final_answer)
+        result['suggestions'] = structured.suggestions
 
         # 根据是否超时调整免责声明
         if timeout_occurred and not completed_agents:
@@ -570,7 +576,7 @@ class SwarmCoordinator:
         elif timeout_occurred:
             result['disclaimer'] = f"以上分析基于 {len(completed_agents)} 个 Agent 的部分协作结果（部分分析模块超时未完成），仅供参考，不能替代医生诊断。"
         else:
-            result['disclaimer'] = "以上分析基于多个专业 Agent 的协作，仅供参考，不能替代医生诊断。"
+            result['disclaimer'] = structured.disclaimer
 
         return result
 
@@ -652,27 +658,6 @@ class SwarmCoordinator:
                     "subtask_type": subtask.type,
                 },
             )
-
-    def _extract_suggestions(self, final_answer: str) -> List[str]:
-        """从最终答案中提取建议（简化实现）"""
-        suggestions = []
-
-        # 简单的文本匹配
-        if "【核心建议】" in final_answer:
-            # 提取核心建议部分
-            start_idx = final_answer.find("【核心建议】")
-            end_idx = final_answer.find("【", start_idx + 1)
-            if end_idx == -1:
-                end_idx = len(final_answer)
-
-            suggestions_text = final_answer[start_idx:end_idx]
-
-            # 提取编号列表
-            import re
-            matches = re.findall(r'\d+\.\s*([^\n]+)', suggestions_text)
-            suggestions = matches[:5]  # 最多5条
-
-        return suggestions or ["请遵循医嘱，注意休息和营养"]
 
 async def process_with_swarm(
     question: str,
