@@ -1,12 +1,19 @@
-# MedAgentCare
+# 🩺 MedAgentCare
 
-MedAgentCare 是一个面向多轮医疗咨询场景的多 Agent 协作与安全问答系统。项目围绕“多症状、多轮次、跨维度咨询”中的问题拆解不足、上下文遗忘和医疗安全边界不稳定，构建了“原子 Skill + 专业 Agent + Swarm 协作”的工程化问答链路。
+面向多轮医疗咨询场景的多 Agent 协作与安全问答系统。
 
-项目地址：https://github.com/zkforge/MedAgentCare
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB)
+![FastAPI](https://img.shields.io/badge/FastAPI-API-009688)
+![React](https://img.shields.io/badge/React-Frontend-61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-Frontend-3178C6)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)
+![uv](https://img.shields.io/badge/uv-package%20manager-5C4EE5)
 
-> 说明：本项目仅用于学习、研究和工程展示，不能替代医生诊断或治疗。
+MedAgentCare 围绕“多症状、多轮次、跨维度咨询”中的问题拆解不足、上下文遗忘和医疗安全边界不稳定，构建了“原子 Skill + 专业 Agent + Swarm 协作”的工程化问答链路。
 
-## 项目概览
+> ⚠️ 说明：本项目仅用于学习、研究和工程展示，不能替代医生诊断或治疗。
+
+## 🧭 项目概览
 
 ### 项目定位
 
@@ -19,6 +26,27 @@ MedAgentCare 是一个面向多轮医疗咨询场景的多 Agent 协作与安全
 - **执行调度**：基于 ReAct 思路实现 Think-Act-Observe Agent Loop；简单问题走单 Agent 快速通道，复杂问题由 LeadAgent 拆分后交给多个 Worker Agent 协作处理。
 - **记忆机制**：短期记忆维护会话内最近 5 轮关键上下文；长期记忆基于 Mem0 存储会话摘要，并支持跨会话相似案例检索。
 - **安全约束**：通过约束配置和运行时校验限制医疗输出，覆盖免责声明、高危症状就医提醒、明确诊断禁止和具体处方剂量禁止；可自动修复缺少免责声明或高危提醒的输出。
+
+### 架构图
+
+```mermaid
+flowchart LR
+    User[用户问题] --> Entry[FastAPI / CLI]
+    Entry --> Router[SwarmCoordinator]
+    Router --> Simple[单 Agent 快速通道]
+    Router --> Lead[LeadAgent 任务拆分]
+    Lead --> Consultation[ConsultationAgent]
+    Lead --> Diagnostic[DiagnosticAgent]
+    Lead --> Research[ResearchAgent]
+    Simple --> Skills[9 个本地 Skill]
+    Consultation --> Skills
+    Diagnostic --> Skills
+    Research --> Skills
+    Skills --> Knowledge[Milvus Lite 知识库]
+    Skills --> Memory[短期记忆 / Mem0]
+    Router --> Guard[医疗安全约束与自动修复]
+    Guard --> Output[结构化回答]
+```
 
 ### 结果指标
 
@@ -35,9 +63,16 @@ MedAgentCare 是一个面向多轮医疗咨询场景的多 Agent 协作与安全
 
 ### 技术栈
 
-Python、FastAPI、React、TypeScript、Skills、ReAct、Agent Swarm、Milvus Lite、Mem0、Harness Engineering、Docker。
+| 层级 | 技术 |
+| --- | --- |
+| 后端服务 | Python, FastAPI |
+| 前端演示 | React, TypeScript, Vite |
+| Agent 编排 | ReAct, Agent Swarm, Skill Registry |
+| 记忆与知识库 | Mem0, Milvus Lite |
+| 安全约束 | YAML constraints, runtime validator, auto fixer |
+| 工程化 | uv, Docker, unittest |
 
-## 当前可验证状态
+## ✅ 当前可验证状态
 
 代码中可检查的模块：
 
@@ -56,7 +91,7 @@ Python、FastAPI、React、TypeScript、Skills、ReAct、Agent Swarm、Milvus Li
 
 - 医疗知识库、LLM、Mem0、网络搜索依赖本地环境或外部服务，部署前必须显式配置。
 
-## 目录结构
+## 📁 目录结构
 
 ```text
 .
@@ -78,7 +113,7 @@ Python、FastAPI、React、TypeScript、Skills、ReAct、Agent Swarm、Milvus Li
 └── frontend/                      # 前端演示页
 ```
 
-## 配置
+## ⚙️ 配置
 
 配置统一从环境变量读取，不再依赖固定本机路径。
 
@@ -86,7 +121,8 @@ Python、FastAPI、React、TypeScript、Skills、ReAct、Agent Swarm、Milvus Li
 cp .env.example .env
 ```
 
-关键变量：
+<details>
+<summary>关键环境变量</summary>
 
 ```bash
 LLM_API_KEY=your-openai-compatible-api-key
@@ -107,7 +143,9 @@ TORCH_HOME=/Users/your-name/.cache/torch
 
 本地 MacBook Air 演示建议把 Hugging Face、Sentence Transformers 和 Torch 缓存放在用户目录下，不建议使用相对路径，避免从不同工作目录启动服务时重复下载模型。
 
-## 本地运行
+</details>
+
+## 🚀 本地运行
 
 ```bash
 uv sync
@@ -174,7 +212,7 @@ curl -X POST http://127.0.0.1:8000/chat \
   }'
 ```
 
-## API 接入
+## 🔌 API 接入
 
 ### 健康检查
 
@@ -306,7 +344,7 @@ try {
 
 前端需要为 `/chat` 设置较长超时，并准备展示失败状态。该接口可能触发 LLM、Mem0、Milvus Lite 和网络搜索等外部依赖，生产环境应通过反向代理、日志和错误提示把这些失败路径显式暴露出来。
 
-## Docker 部署
+## 🐳 Docker 部署
 
 构建镜像：
 
@@ -401,7 +439,7 @@ SENTENCE_TRANSFORMERS_HOME=/data/model-cache/sentence-transformers
 TORCH_HOME=/data/model-cache/torch
 ```
 
-## 知识库
+## 📚 知识库
 
 医学文档位于 `src/medagentcare/knowledge/data/documents/`，这些 txt 文件是版本化源数据。导入 Milvus Lite：
 
@@ -411,7 +449,7 @@ uv run medagentcare-import-knowledge
 
 `src/medagentcare/knowledge/data/*.db` 按当前策略视为本地生成产物，默认不纳入 Git，也不会进入 Docker build context。部署时需要在环境初始化阶段运行导入脚本，或通过 volume 挂载预生成的数据库。详见 `src/medagentcare/knowledge/data/README.md`。
 
-## 验证状态
+## 🧪 验证状态
 
 离线回归测试命令：
 
