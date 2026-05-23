@@ -12,8 +12,13 @@ htmlcov
 venv
 env
 ENV
+.venv
+.mypy_cache
+.ruff_cache
 dist
 build
+**/node_modules
+frontend/dist
 *.egg-info
 **/knowledge/data/*.db
 memory/agents

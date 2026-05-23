@@ -48,8 +48,8 @@ def _get_float_env(name: str, default: float) -> float:
 # LLM API config (OpenAI-compatible endpoint)
 LLM_CONFIG = {
     "api_key": _get_env("LLM_API_KEY") or _get_env("OPENAI_API_KEY"),
-    "model_name": _get_env("LLM_MODEL_NAME", "doubao-seed-1-6-flash-250828"),
-    "base_url": _get_env("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+    "model_name": _get_env("LLM_MODEL_NAME", "qwen3.6-plus"),
+    "base_url": _get_env("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
     "temperature": _get_float_env("LLM_TEMPERATURE", 0.7),
     "max_tokens": _get_int_env("LLM_MAX_TOKENS", 8192),
 }

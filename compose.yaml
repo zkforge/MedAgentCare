@@ -1,0 +1,51 @@
+services:
+  api:
+    build:
+      context: .
+    image: medagentcare-api:local
+    ports:
+      - "${MEDAGENTCARE_API_PORT:-8000}:8000"
+    environment:
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-qwen3.6-plus}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.7}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-8192}
+      MEM0_API_KEY: ${MEM0_API_KEY:-}
+      MEDAGENTCARE_CORS_ORIGINS: ${MEDAGENTCARE_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      MEDAGENTCARE_MILVUS_DB_PATH: ${MEDAGENTCARE_DOCKER_MILVUS_DB_PATH:-/data/knowledge/milvus_lite.db}
+      HF_ENDPOINT: ${HF_ENDPOINT:-}
+      HF_HOME: ${MEDAGENTCARE_DOCKER_HF_HOME:-/data/model-cache/huggingface}
+      SENTENCE_TRANSFORMERS_HOME: ${MEDAGENTCARE_DOCKER_SENTENCE_TRANSFORMERS_HOME:-/data/model-cache/sentence-transformers}
+      TORCH_HOME: ${MEDAGENTCARE_DOCKER_TORCH_HOME:-/data/model-cache/torch}
+    volumes:
+      - medagentcare-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    command: >
+      sh -c "if [ ! -d node_modules/vite ]; then npm ci; fi &&
+      npm run dev -- --host 0.0.0.0"
+    ports:
+      - "${MEDAGENTCARE_FRONTEND_PORT:-5173}:5173"
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./frontend:/app
+      - medagentcare-frontend-node-modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  medagentcare-data:
+  medagentcare-frontend-node-modules:
