@@ -5,6 +5,7 @@ from .base_agent import BaseAgent
 from .consultation_agent import ConsultationAgent, consult
 from .diagnostic_agent import DiagnosticAgent, diagnose
 from .research_agent import ResearchAgent, research
+from .interview_agent import InterviewAgent
 
 __all__ = [
     'BaseAgent',
@@ -14,4 +15,5 @@ __all__ = [
     'diagnose',
     'ResearchAgent',
     'research',
+    'InterviewAgent',
 ]

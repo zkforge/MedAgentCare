@@ -567,6 +567,32 @@ export default function App() {
             continue;
           }
 
+          if (streamEvent.event === "interview_question" && typeof streamEvent.data === "object" && streamEvent.data) {
+            const data = streamEvent.data as Record<string, unknown>;
+            const questionText = (data.question as string) || "";
+            const round = data.interview_round as number;
+            const maxRounds = data.max_rounds as number;
+            const covered = (data.covered_dimensions as string[]) || [];
+            const remaining = (data.remaining_dimensions as string[]) || [];
+
+            const visibleEvents = progressEvents.slice(-80);
+            patchMessage(activeSession.id, assistantMessageId, {
+              content: questionText,
+              createdAt: new Date().toISOString(),
+              isStreaming: false,
+              progressEvents: visibleEvents,
+              progressStatus: `第 ${round}/${maxRounds} 轮问诊 · 已覆盖: ${covered.join("、") || "无"} · 待追问: ${remaining.join("、")}`,
+              response: {
+                progress_events: visibleEvents,
+                interview_round: round,
+                max_rounds: maxRounds,
+                covered_dimensions: covered,
+                remaining_dimensions: remaining,
+              } as ChatResponse,
+            });
+            continue;
+          }
+
           if (streamEvent.event === "result" && typeof streamEvent.data === "object" && streamEvent.data) {
             const data = streamEvent.data as ChatResponse;
             const visibleEvents = progressEvents.slice(-80);

@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 import json
 from loguru import logger
+from medagentcare.swarm.interview_state import InterviewState
 
 # Harness Engineering: 熵管理
 try:
@@ -107,6 +108,7 @@ class ShortTermMemory:
 
         self.storage_type = storage_type
         self.sessions: Dict[str, ConversationHistory] = {}
+        self.interview_states: Dict[str, InterviewState] = {}
         self.redis_client = None
         self._initialized = True
 
@@ -276,6 +278,27 @@ class ShortTermMemory:
 
         return openai_messages
 
+    # ===== 问诊状态管理 =====
+
+    def set_interview_state(self, session_id: str, state: InterviewState):
+        """保存问诊状态"""
+        self.interview_states[session_id] = state
+        logger.debug(f"Saved interview state for session {session_id} (round {state.current_round})")
+
+    def get_interview_state(self, session_id: str) -> Optional[InterviewState]:
+        """获取问诊状态"""
+        return self.interview_states.get(session_id)
+
+    def has_active_interview(self, session_id: str) -> bool:
+        """检查是否存在进行中的问诊"""
+        state = self.interview_states.get(session_id)
+        return state is not None and not state.interview_complete
+
+    def clear_interview_state(self, session_id: str):
+        """清除问诊状态"""
+        self.interview_states.pop(session_id, None)
+        logger.debug(f"Cleared interview state for session {session_id}")
+
     def clear_session(self, session_id: str):
         """
         清空会话
@@ -288,6 +311,9 @@ class ShortTermMemory:
         elif self.storage_type == "redis" and self.redis_client:
             key = f"session:{session_id}"
             self.redis_client.delete(key)
+
+        # 同时清除问诊状态
+        self.clear_interview_state(session_id)
 
         logger.debug(f"Cleared session: {session_id}")
 

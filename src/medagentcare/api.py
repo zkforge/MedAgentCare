@@ -167,7 +167,33 @@ async def _stream_chat_events(
             yield _sse_event("progress", payload)
 
         result = await task
-        yield _sse_event("result", result)
+
+        # 问诊模式：根据 status 发送不同的事件类型
+        if result.get("status") == "need_more_info":
+            # 追问事件：前端应显示追问并等待用户输入
+            yield _sse_event(
+                "interview_question",
+                {
+                    "question": result.get("answer", ""),
+                    "interview_round": result.get("interview_round", 0),
+                    "max_rounds": result.get("max_rounds", 5),
+                    "covered_dimensions": result.get("covered_dimensions", []),
+                    "remaining_dimensions": result.get("remaining_dimensions", []),
+                    "session_id": result.get("session_id"),
+                },
+            )
+        else:
+            # 正常结果（含问诊完成后转诊断的结果）
+            if result.get("status") == "interview_complete":
+                yield _sse_event(
+                    "interview_complete",
+                    {
+                        "summary": result.get("answer", ""),
+                        "session_id": result.get("session_id"),
+                    },
+                )
+            yield _sse_event("result", result)
+
         yield _sse_event("done", {"ok": True})
     except asyncio.CancelledError:
         task.cancel()

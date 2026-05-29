@@ -16,6 +16,8 @@ class EventType(Enum):
     CONTEXT_UPDATED = "context_updated"          # 共享上下文更新
     AGENT_QUESTION = "agent_question"            # Agent 提出问题
     AGENT_ANSWER = "agent_answer"                # Agent 回答问题
+    INTERVIEW_QUESTION = "interview_question"    # 问诊追问（需要用户回复）
+    INTERVIEW_COMPLETE = "interview_complete"    # 问诊完成（转入诊断阶段）
     SWARM_STARTED = "swarm_started"              # Swarm 开始处理
     SWARM_COMPLETED = "swarm_completed"          # Swarm 完成处理
 
