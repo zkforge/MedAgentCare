@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   AlertTriangle,
+  ArrowUp,
   Brain,
   CheckCircle2,
   CircleAlert,
@@ -16,7 +17,6 @@ import {
   MessageSquare,
   Network,
   Plus,
-  Send,
   Stethoscope,
   Timer,
   Trash2,
@@ -370,7 +370,6 @@ export default function App() {
   const [sessions, setSessions] = useState<ChatSession[]>(() => loadSessions());
   const [activeSessionId, setActiveSessionId] = useState(() => sessions[0]?.id ?? createSession().id);
   const [question, setQuestion] = useState("");
-  const [enableSwarm, setEnableSwarm] = useState(false);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [healthError, setHealthError] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -516,7 +515,7 @@ export default function App() {
         body: JSON.stringify({
           question: submittedQuestion,
           context: {},
-          enable_swarm: enableSwarm,
+          enable_swarm: false,
           session_id: activeSession.id,
         }),
         signal: controller.signal,
@@ -675,6 +674,13 @@ export default function App() {
             )}
           </div>
         </section>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-health" title={health?.status === "ok" ? "服务运行正常" : healthError || "服务未连接"}>
+            <div className={`health-dot ${health?.status === "ok" ? "ok" : "error"}`} />
+            <span className="health-text">{health?.status === "ok" ? "System Online" : "Disconnected"}</span>
+          </div>
+        </div>
       </aside>
 
       <section className="main-panel">
@@ -682,7 +688,7 @@ export default function App() {
           <div>
             <h2>医疗咨询工作台</h2>
           </div>
-          <a className="github-link" href="https://github.com" target="_blank" rel="noreferrer" aria-label="打开 GitHub">
+          <a className="github-link" href="https://github.com/zkforge/MedAgentCare" target="_blank" rel="noreferrer" aria-label="打开 GitHub">
             <Github size={20} />
           </a>
         </header>
@@ -784,94 +790,12 @@ export default function App() {
                 }
               }}
             />
-            <div className="prompt-footer">
-              <label className="swarm-control">
-                <span>启用 Swarm 协作</span>
-                <input
-                  checked={enableSwarm}
-                  type="checkbox"
-                  onChange={(event) => setEnableSwarm(event.target.checked)}
-                />
-              </label>
-              <button className="send-button" type="button" disabled={!question.trim() || isSending} onClick={sendQuestion}>
-                {isSending ? <Loader2 size={18} className="spin" /> : <Send size={18} />}
-                发送
-              </button>
-            </div>
+            <button className="send-button" type="button" aria-label="发送消息" disabled={!question.trim() || isSending} onClick={sendQuestion}>
+              {isSending ? <Loader2 size={18} className="spin" /> : <ArrowUp size={18} strokeWidth={2.5} />}
+            </button>
           </div>
         </footer>
       </section>
-
-      <aside className="details-panel">
-        <div className="details-heading">
-          <h2>详情</h2>
-          <p>运行配置</p>
-        </div>
-
-        <section className="details-section">
-          <div className="section-title">
-            <HeartPulse size={15} />
-            服务健康状态
-            <span className={`status-dot ${health?.status === "ok" ? "ok" : "error"}`} />
-          </div>
-          <div className="health-card">
-            <span>API 状态</span>
-            <strong className={health?.status === "ok" ? "ok-text" : "error-text"}>
-              {health?.status === "ok" ? "可用" : healthError ? "未连接" : "检查中..."}
-            </strong>
-          </div>
-          <div className="health-card">
-            <span>LLM 连接</span>
-            <strong className={health?.llm_configured ? "ok-text" : "muted-text"}>
-              {health?.llm_configured ? "已配置" : "未配置"}
-            </strong>
-          </div>
-          <div className="health-card">
-            <span>Mem0 记忆</span>
-            <strong className={health?.mem0_configured ? "ok-text" : "muted-text"}>
-              {health?.mem0_configured ? "已启用" : "未启用"}
-            </strong>
-          </div>
-        </section>
-
-        <section className="details-section">
-          <div className="section-title">
-            <Brain size={15} />
-            指标
-          </div>
-          <div className="metric-grid">
-            <div>
-              <p>Swarm</p>
-              <strong>{metrics.swarm ? "已启用" : "关闭"}</strong>
-            </div>
-            <div>
-              <p>Agent</p>
-              <strong>{metrics.agents}</strong>
-            </div>
-            <div>
-              <p>子任务</p>
-              <strong>{metrics.subtasks}</strong>
-            </div>
-            <div>
-              <p>耗时</p>
-              <strong>{metrics.time}</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="inspect-section">
-          <div className="section-title">
-            <Clipboard size={15} />
-            检查
-          </div>
-          <div className="json-card">
-            <div className="json-card-header">
-              <span>ID: {activeSession?.id ?? "无"}</span>
-            </div>
-            <pre>{JSON.stringify(latestResponse ? summarizeResponse(latestResponse) : {}, null, 2)}</pre>
-          </div>
-        </section>
-      </aside>
     </main>
   );
 }

@@ -38,11 +38,11 @@ button {
 
 .workbench-shell {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 340px;
+  grid-template-columns: 280px minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
   color: #202124;
-  background: #f8f9fa;
+  background: #ffffff;
 }
 
 .sidebar {
@@ -50,13 +50,13 @@ button {
   height: 100vh;
   min-height: 0;
   flex-direction: column;
-  border-right: 1px solid #dadce0;
-  padding: 18px 14px;
-  background: #ffffff;
+  border-right: 1px solid #f1f3f4;
+  padding: 20px 16px;
+  background: #f9f9fb;
 }
 
 .brand-block {
-  margin-bottom: 28px;
+  margin-bottom: 32px;
   padding: 0 8px;
 }
 
@@ -81,23 +81,25 @@ button {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 42px;
+  min-height: 44px;
   width: 100%;
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   color: #ffffff;
-  background: #1a73e8;
-  font-weight: 650;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.15);
-  transition: background 0.15s ease, transform 0.15s ease;
+  background: linear-gradient(135deg, #1a73e8, #2b84ec);
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(26, 115, 232, 0.2);
+  transition: all 0.2s ease;
 }
 
 .new-button:hover {
-  background: #1765cc;
+  background: linear-gradient(135deg, #1765cc, #2476d6);
+  box-shadow: 0 6px 16px rgba(26, 115, 232, 0.25);
+  transform: translateY(-1px);
 }
 
 .new-button:active {
-  transform: scale(0.98);
+  transform: scale(0.98) translateY(0);
 }
 
 .recent-section {
@@ -105,7 +107,7 @@ button {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  margin-top: 28px;
+  margin-top: 32px;
 }
 
 .recent-section h2,
@@ -143,19 +145,27 @@ button {
     "icon title delete"
     "icon time delete";
   align-items: center;
-  min-height: 50px;
+  min-height: 52px;
   width: 100%;
   border: 0;
-  border-radius: 8px;
-  padding: 8px 8px;
-  color: #202124;
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: #3c4043;
   background: transparent;
   text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.session-item:hover,
+.session-item:hover {
+  background: #f1f3f4;
+}
+
 .session-item.active {
   background: #e8f0fe;
+  color: #1a73e8;
+}
+
+.session-item.active > svg:first-child {
   color: #1a73e8;
 }
 
@@ -196,6 +206,40 @@ button {
   color: #d93025;
 }
 
+.sidebar-footer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #edf0f2;
+}
+
+.sidebar-health {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  color: #5f6368;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.health-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #dadce0;
+}
+
+.health-dot.ok {
+  background: #34a853;
+  box-shadow: 0 0 0 2px rgba(52, 168, 83, 0.2);
+}
+
+.health-dot.error {
+  background: #ea4335;
+  box-shadow: 0 0 0 2px rgba(234, 67, 53, 0.2);
+}
+
 .main-panel {
   position: relative;
   display: flex;
@@ -204,7 +248,7 @@ button {
   height: 100vh;
   flex-direction: column;
   overflow: hidden;
-  background: #f8f9fa;
+  background: #ffffff;
 }
 
 .app-bar {
@@ -212,9 +256,12 @@ button {
   align-items: center;
   justify-content: space-between;
   min-height: 64px;
-  border-bottom: 1px solid #dadce0;
   padding: 0 24px;
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .app-bar h2 {
@@ -318,16 +365,16 @@ button {
 .example-card:focus-visible {
   border-color: #1a73e8;
   color: #174ea6;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.16), 0 2px 8px rgba(26, 115, 232, 0.14);
+  box-shadow: 0 4px 12px rgba(26, 115, 232, 0.1);
   outline: none;
 }
 
 .message-flow {
   display: flex;
-  width: min(900px, 100%);
+  width: min(840px, 100%);
   margin: 0 auto;
   flex-direction: column;
-  gap: 28px;
+  gap: 32px;
 }
 
 .message-row {
@@ -354,22 +401,23 @@ button {
 }
 
 .message-card {
-  max-width: min(760px, 90%);
+  max-width: 100%;
   color: #202124;
 }
 
 .message-row.user .message-card {
-  max-width: min(680px, 80%);
-  border: 1px solid #dadce0;
-  border-radius: 16px 16px 4px 16px;
-  padding: 13px 15px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.12);
+  max-width: min(680px, 85%);
+  border: 0;
+  border-radius: 20px 20px 4px 20px;
+  padding: 14px 18px;
+  background: #f1f3f4;
+  /* subtle modern bubble */
 }
 
 .message-row.assistant .message-card,
 .message-row.error .message-card {
   padding-top: 2px;
+  max-width: 100%;
 }
 
 .message-row.error .message-card {
@@ -643,31 +691,33 @@ button {
 
 .prompt-container {
   display: flex;
-  width: min(900px, 100%);
+  flex-direction: row;
+  align-items: flex-end;
+  width: min(840px, 100%);
   margin: 0 auto;
-  flex-direction: column;
-  gap: 8px;
-  border: 1px solid #dadce0;
-  border-radius: 16px;
-  padding: 12px 14px;
+  gap: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 24px;
+  padding: 10px 10px 10px 20px;
   background: #ffffff;
   box-shadow:
-    0 1px 2px rgba(60, 64, 67, 0.3),
-    0 1px 3px 1px rgba(60, 64, 67, 0.15);
+    0 4px 12px rgba(0, 0, 0, 0.05),
+    0 12px 24px rgba(0, 0, 0, 0.08);
   pointer-events: auto;
 }
 
 .prompt-container textarea {
-  width: 100%;
-  min-height: 48px;
+  flex: 1;
+  min-height: 40px;
   max-height: 190px;
-  resize: vertical;
+  resize: none;
   border: 0;
-  padding: 0;
+  padding: 8px 0;
+  margin: 0;
   color: #202124;
   background: transparent;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 15px;
+  line-height: 24px;
   outline: none;
 }
 
@@ -675,77 +725,22 @@ button {
   color: #5f6368;
 }
 
-.prompt-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-top: 1px solid rgba(218, 220, 224, 0.5);
-  padding-top: 8px;
-}
-
-.swarm-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  color: #5f6368;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.swarm-control:hover {
-  color: #1a73e8;
-}
-
-.swarm-control input {
-  width: 44px;
-  height: 24px;
-  appearance: none;
-  border-radius: 999px;
-  background: #dadce0;
-  position: relative;
+.send-button {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  color: #ffffff;
+  background: #1a73e8;
   transition: background 0.15s ease;
 }
 
-.swarm-control input::before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.24);
-  transition: transform 0.15s ease;
-}
-
-.swarm-control input:checked {
-  background: #1a73e8;
-}
-
-.swarm-control input:checked::before {
-  transform: translateX(20px);
-}
-
-.send-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 38px;
-  border: 0;
-  border-radius: 999px;
-  padding: 0 16px;
-  color: #ffffff;
-  background: #1a73e8;
-  font-size: 13px;
-  font-weight: 700;
-}
-
 .send-button:hover:not(:disabled) {
-  background: #1765cc;
+  background: #1557b0;
 }
 
 .send-button:disabled {
@@ -910,23 +905,17 @@ button {
 }
 
 .session-list::-webkit-scrollbar,
-.chat-container::-webkit-scrollbar,
-.details-panel::-webkit-scrollbar,
-.json-card pre::-webkit-scrollbar {
+.chat-container::-webkit-scrollbar {
   width: 5px;
 }
 
 .session-list::-webkit-scrollbar-track,
-.chat-container::-webkit-scrollbar-track,
-.details-panel::-webkit-scrollbar-track,
-.json-card pre::-webkit-scrollbar-track {
+.chat-container::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .session-list::-webkit-scrollbar-thumb,
-.chat-container::-webkit-scrollbar-thumb,
-.details-panel::-webkit-scrollbar-thumb,
-.json-card pre::-webkit-scrollbar-thumb {
+.chat-container::-webkit-scrollbar-thumb {
   background: #dadce0;
   border-radius: 999px;
 }
@@ -934,16 +923,6 @@ button {
 @media (max-width: 1180px) {
   .workbench-shell {
     grid-template-columns: 240px minmax(0, 1fr);
-  }
-
-  .details-panel {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(340px, 92vw);
-    z-index: 20;
-    box-shadow: -18px 0 48px rgba(60, 64, 67, 0.18);
   }
 }
 
@@ -985,26 +964,11 @@ button {
     height: calc(100vh - 260px);
   }
 
-  .details-panel {
-    position: static;
-    width: 100%;
-    height: auto;
-    box-shadow: none;
-  }
-
   .prompt-dock {
     bottom: 16px;
     padding: 0 16px;
   }
 
-  .prompt-footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .send-button {
-    width: 100%;
-  }
 
   .example-grid {
     grid-template-columns: 1fr;
