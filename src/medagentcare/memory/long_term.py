@@ -15,6 +15,9 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 from loguru import logger
 import os
+import time
+
+from medagentcare.core.tracing import emit_trace_event_nowait, text_preview
 
 # Harness Engineering: 熵管理
 try:
@@ -116,8 +119,22 @@ class LongTermMemory:
             记忆ID，失败返回 None
         """
         if not self.enabled:
+            emit_trace_event_nowait(
+                stage="memory_operation",
+                title="Mem0 保存跳过",
+                detail="长期记忆未启用。",
+                status="warning",
+                metadata={"operation": "add_session_summary", "provider": "mem0", "enabled": False},
+            )
             return None
 
+        start_time = time.perf_counter()
+        emit_trace_event_nowait(
+            stage="memory_operation",
+            title="Mem0 保存开始",
+            detail=text_preview(question),
+            metadata={"operation": "add_session_summary", "provider": "mem0", "enabled": True},
+        )
         try:
             # 构建记忆文本（包含问题和答案摘要）
             memory_text = f"问题：{question}\\n回答：{answer[:500]}..."
@@ -141,10 +158,35 @@ class LongTermMemory:
                 memory_id = str(result)
 
             logger.info(f"Added session summary to Mem0: {memory_id}")
+            duration_ms = round((time.perf_counter() - start_time) * 1000)
+            emit_trace_event_nowait(
+                stage="memory_operation",
+                title="Mem0 保存完成",
+                detail=f"用时 {duration_ms / 1000:.1f}s。",
+                status="completed",
+                metadata={
+                    "operation": "add_session_summary",
+                    "provider": "mem0",
+                    "duration_ms": duration_ms,
+                    "memory_id_present": bool(memory_id),
+                },
+            )
             return memory_id
 
         except Exception as e:
             logger.error(f"Failed to add session summary to Mem0: {e}")
+            duration_ms = round((time.perf_counter() - start_time) * 1000)
+            emit_trace_event_nowait(
+                stage="memory_operation",
+                title="Mem0 保存失败",
+                detail=str(e)[:200],
+                status="error",
+                metadata={
+                    "operation": "add_session_summary",
+                    "provider": "mem0",
+                    "duration_ms": duration_ms,
+                },
+            )
             return None
 
     def search_similar_sessions(
@@ -163,8 +205,27 @@ class LongTermMemory:
             相似会话列表，每个包含 memory_id、content、score、metadata
         """
         if not self.enabled:
+            emit_trace_event_nowait(
+                stage="memory_operation",
+                title="Mem0 检索跳过",
+                detail="长期记忆未启用。",
+                status="warning",
+                metadata={"operation": "search_similar_sessions", "provider": "mem0", "enabled": False},
+            )
             return []
 
+        start_time = time.perf_counter()
+        emit_trace_event_nowait(
+            stage="memory_operation",
+            title="Mem0 检索开始",
+            detail=text_preview(query),
+            metadata={
+                "operation": "search_similar_sessions",
+                "provider": "mem0",
+                "limit": limit,
+                "enabled": True,
+            },
+        )
         try:
             results = self.mem0.search(
                 query=query,
@@ -206,9 +267,33 @@ class LongTermMemory:
             formatted_results = formatted_results[:limit]
 
             logger.info(f"Found {len(formatted_results)} similar sessions for query: {query[:50]}...")
+            duration_ms = round((time.perf_counter() - start_time) * 1000)
+            emit_trace_event_nowait(
+                stage="memory_operation",
+                title="Mem0 检索完成",
+                detail=f"找到 {len(formatted_results)} 条，用时 {duration_ms / 1000:.1f}s。",
+                status="completed",
+                metadata={
+                    "operation": "search_similar_sessions",
+                    "provider": "mem0",
+                    "duration_ms": duration_ms,
+                    "result_count": len(formatted_results),
+                },
+            )
             return formatted_results
 
         except Exception as e:
             logger.error(f"Failed to search similar sessions: {e}")
+            duration_ms = round((time.perf_counter() - start_time) * 1000)
+            emit_trace_event_nowait(
+                stage="memory_operation",
+                title="Mem0 检索失败",
+                detail=str(e)[:200],
+                status="error",
+                metadata={
+                    "operation": "search_similar_sessions",
+                    "provider": "mem0",
+                    "duration_ms": duration_ms,
+                },
+            )
             return []
-

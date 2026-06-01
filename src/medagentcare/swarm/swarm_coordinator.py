@@ -19,6 +19,7 @@ from .shared_context import SharedContext
 from .lead_agent import LeadAgent
 from .events import Event, EventType
 from medagentcare.agents import ConsultationAgent, DiagnosticAgent, ResearchAgent, InterviewAgent
+from medagentcare.core.tracing import reset_trace_callback, set_trace_callback
 from medagentcare.memory import SessionSummaryManager, SessionSummary, ShortTermMemory, LongTermMemory
 from medagentcare.response_sections import structure_medical_response
 from .interview_state import InterviewState, REQUIRED_DIMENSIONS, RED_FLAG_RULES
@@ -1210,8 +1211,12 @@ async def process_with_swarm(
     Returns:
         处理结果
     """
-    coordinator = SwarmCoordinator(
-        enable_swarm=enable_swarm,
-        progress_callback=progress_callback,
-    )
-    return await coordinator.process(question, context, session_id=session_id)
+    trace_token = set_trace_callback(progress_callback)
+    try:
+        coordinator = SwarmCoordinator(
+            enable_swarm=enable_swarm,
+            progress_callback=progress_callback,
+        )
+        return await coordinator.process(question, context, session_id=session_id)
+    finally:
+        reset_trace_callback(trace_token)

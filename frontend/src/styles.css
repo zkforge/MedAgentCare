@@ -573,6 +573,20 @@ button {
   padding: 9px 12px;
 }
 
+.progress-step.trace-step {
+  margin-left: 18px;
+  border-left: 1px dotted var(--line);
+  background: rgba(239, 238, 231, 0.38);
+}
+
+.progress-step.trace-step.slow {
+  background: #fff8e9;
+}
+
+.progress-step.trace-step.very-slow {
+  background: #fff0ed;
+}
+
 .progress-step-marker {
   display: grid;
   width: 24px;
@@ -635,6 +649,32 @@ button {
   color: var(--muted);
   font-size: 12px;
   line-height: 18px;
+}
+
+.trace-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.trace-chip-row span {
+  border: 1px solid var(--line);
+  padding: 2px 6px;
+  color: var(--muted);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.trace-step.slow .trace-chip-row span:first-child {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.trace-step.very-slow .trace-chip-row span:first-child {
+  border-color: var(--red);
+  color: var(--red);
 }
 
 .progress-empty {

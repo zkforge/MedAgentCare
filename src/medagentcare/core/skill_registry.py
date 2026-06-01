@@ -6,7 +6,10 @@ from typing import Dict, Any, List, Callable, Optional
 from dataclasses import dataclass
 import inspect
 import asyncio
+import time
 from loguru import logger
+
+from medagentcare.core.tracing import emit_trace_event, text_preview
 
 
 @dataclass
@@ -83,6 +86,17 @@ class SkillRegistry:
 
         try:
             logger.debug(f"Executing skill: {name} with args: {kwargs}")
+            start_time = time.perf_counter()
+            await emit_trace_event(
+                stage="skill_call",
+                title=f"Skill 调用开始：{name}",
+                detail=text_preview(kwargs, limit=120),
+                metadata={
+                    "skill": name,
+                    "operation": "execute",
+                    "args_preview": text_preview(kwargs, limit=160),
+                },
+            )
 
             if skill['is_async']:
                 # Async skill
@@ -96,11 +110,38 @@ class SkillRegistry:
                 )
 
             logger.debug(f"Skill {name} completed successfully")
+            duration_ms = round((time.perf_counter() - start_time) * 1000)
+            result_count = len(result) if isinstance(result, list) else None
+            await emit_trace_event(
+                stage="skill_call",
+                title=f"Skill 调用完成：{name}",
+                detail=f"用时 {duration_ms / 1000:.1f}s。",
+                status="completed" if not isinstance(result, dict) or result.get("success", True) else "warning",
+                metadata={
+                    "skill": name,
+                    "operation": "execute",
+                    "duration_ms": duration_ms,
+                    "success": result.get("success") if isinstance(result, dict) else None,
+                    "result_count": result_count,
+                },
+            )
             return result
 
         except Exception as e:
             error_msg = f"Skill execution failed: {name} - {str(e)}"
             logger.error(error_msg)
+            duration_ms = round((time.perf_counter() - start_time) * 1000) if "start_time" in locals() else None
+            await emit_trace_event(
+                stage="skill_call",
+                title=f"Skill 调用失败：{name}",
+                detail=str(e)[:200],
+                status="error",
+                metadata={
+                    "skill": name,
+                    "operation": "execute",
+                    "duration_ms": duration_ms,
+                },
+            )
             return {
                 "success": False,
                 "error": error_msg,

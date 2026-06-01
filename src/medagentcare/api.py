@@ -109,7 +109,7 @@ async def _stream_chat_events(
     pipeline emits high-level progress records for user-visible runtime state,
     then returns the final consultation result.
     """
-    progress_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=200)
+    progress_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=1000)
 
     async def publish_progress(payload: Dict[str, Any]) -> None:
         try:

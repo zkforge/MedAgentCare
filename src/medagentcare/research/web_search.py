@@ -7,8 +7,11 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from loguru import logger
 import asyncio
+import time
 from bs4 import BeautifulSoup
 import httpx
+
+from medagentcare.core.tracing import emit_trace_event, text_preview
 
 # 尝试导入 ddgs (新包名) 或 duckduckgo_search (旧包名)
 try:
@@ -89,7 +92,28 @@ class WebSearchTool:
         """
         if not DDGS_AVAILABLE:
             logger.error("DDGS not available, cannot perform web search")
+            await emit_trace_event(
+                stage="web_search",
+                title="网页搜索跳过",
+                detail="DDGS 不可用。",
+                status="warning",
+                metadata={"operation": "search", "provider": "ddgs", "available": False},
+            )
             return []
+
+        start_time = time.perf_counter()
+        await emit_trace_event(
+            stage="web_search",
+            title="网页搜索开始",
+            detail=text_preview(query),
+            metadata={
+                "operation": "search",
+                "provider": "ddgs",
+                "max_results": max_results,
+                "region": region,
+                "retry_count": retry_count,
+            },
+        )
 
         for attempt in range(retry_count + 1):
             try:
@@ -136,6 +160,20 @@ class WebSearchTool:
 
                 if results:
                     logger.info(f"Found {len(results)} results for: {query}")
+                    duration_ms = round((time.perf_counter() - start_time) * 1000)
+                    await emit_trace_event(
+                        stage="web_search",
+                        title="网页搜索完成",
+                        detail=f"找到 {len(results)} 条，用时 {duration_ms / 1000:.1f}s。",
+                        status="completed",
+                        metadata={
+                            "operation": "search",
+                            "provider": "ddgs",
+                            "duration_ms": duration_ms,
+                            "result_count": len(results),
+                            "attempt": attempt + 1,
+                        },
+                    )
                     return results
                 else:
                     logger.warning(f"No results found for: {query}")
@@ -148,8 +186,34 @@ class WebSearchTool:
                     await asyncio.sleep(2 ** attempt)  # 指数退避
                 else:
                     logger.error(f"Web search failed after {retry_count + 1} attempts")
+                    duration_ms = round((time.perf_counter() - start_time) * 1000)
+                    await emit_trace_event(
+                        stage="web_search",
+                        title="网页搜索失败",
+                        detail=str(e)[:200],
+                        status="error",
+                        metadata={
+                            "operation": "search",
+                            "provider": "ddgs",
+                            "duration_ms": duration_ms,
+                            "attempt": attempt + 1,
+                        },
+                    )
                     return []
 
+        duration_ms = round((time.perf_counter() - start_time) * 1000)
+        await emit_trace_event(
+            stage="web_search",
+            title="网页搜索完成",
+            detail=f"未找到结果，用时 {duration_ms / 1000:.1f}s。",
+            status="warning",
+            metadata={
+                "operation": "search",
+                "provider": "ddgs",
+                "duration_ms": duration_ms,
+                "result_count": 0,
+            },
+        )
         return []
 
     def filter_by_domain(
@@ -195,6 +259,13 @@ class WebSearchTool:
             网页文本内容（提取正文）
         """
         try:
+            start_time = time.perf_counter()
+            await emit_trace_event(
+                stage="web_search",
+                title="网页抓取开始",
+                detail=text_preview(url, limit=120),
+                metadata={"operation": "fetch_content", "provider": "httpx"},
+            )
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.get(url)
                 response.raise_for_status()
@@ -218,10 +289,35 @@ class WebSearchTool:
                 if len(text) > max_length:
                     text = text[:max_length] + "..."
 
+                duration_ms = round((time.perf_counter() - start_time) * 1000)
+                await emit_trace_event(
+                    stage="web_search",
+                    title="网页抓取完成",
+                    detail=f"提取 {len(text)} 个字符，用时 {duration_ms / 1000:.1f}s。",
+                    status="completed",
+                    metadata={
+                        "operation": "fetch_content",
+                        "provider": "httpx",
+                        "duration_ms": duration_ms,
+                        "content_chars": len(text),
+                    },
+                )
                 return text
 
         except Exception as e:
             logger.error(f"Failed to fetch content from {url}: {e}")
+            duration_ms = round((time.perf_counter() - start_time) * 1000) if "start_time" in locals() else None
+            await emit_trace_event(
+                stage="web_search",
+                title="网页抓取失败",
+                detail=str(e)[:200],
+                status="error",
+                metadata={
+                    "operation": "fetch_content",
+                    "provider": "httpx",
+                    "duration_ms": duration_ms,
+                },
+            )
             return None
 
     async def search_with_content(

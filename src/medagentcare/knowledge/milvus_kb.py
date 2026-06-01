@@ -10,12 +10,15 @@
 """
 import json
 import os
+import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from loguru import logger
 
 from pymilvus import MilvusClient
 from sentence_transformers import SentenceTransformer
+
+from medagentcare.core.tracing import emit_trace_event_nowait, text_preview
 
 
 class MedicalKnowledgeBase:
@@ -206,6 +209,19 @@ class MedicalKnowledgeBase:
             文档列表，每个文档包含 id, content, metadata, score
         """
         logger.debug(f"Searching for: {query} (top_k={top_k}, filter_type={filter_type})")
+        start_time = time.perf_counter()
+        emit_trace_event_nowait(
+            stage="knowledge_search",
+            title="Milvus 检索开始",
+            detail=text_preview(query),
+            metadata={
+                "operation": "search",
+                "provider": "milvus",
+                "collection": self.collection_name,
+                "top_k": top_k,
+                "filter_type": filter_type,
+            },
+        )
 
         # 向量化查询
         query_vector = self.embedding_model.encode([query])[0]
@@ -227,6 +243,21 @@ class MedicalKnowledgeBase:
             )
         except Exception as e:
             logger.error(f"Search failed: {e}")
+            duration_ms = round((time.perf_counter() - start_time) * 1000)
+            emit_trace_event_nowait(
+                stage="knowledge_search",
+                title="Milvus 检索失败",
+                detail=str(e)[:200],
+                status="error",
+                metadata={
+                    "operation": "search",
+                    "provider": "milvus",
+                    "collection": self.collection_name,
+                    "duration_ms": duration_ms,
+                    "top_k": top_k,
+                    "filter_type": filter_type,
+                },
+            )
             return []
 
         # 格式化结果
@@ -245,6 +276,22 @@ class MedicalKnowledgeBase:
                     continue
 
         logger.debug(f"Found {len(documents)} documents")
+        duration_ms = round((time.perf_counter() - start_time) * 1000)
+        emit_trace_event_nowait(
+            stage="knowledge_search",
+            title="Milvus 检索完成",
+            detail=f"找到 {len(documents)} 条，用时 {duration_ms / 1000:.1f}s。",
+            status="completed",
+            metadata={
+                "operation": "search",
+                "provider": "milvus",
+                "collection": self.collection_name,
+                "duration_ms": duration_ms,
+                "result_count": len(documents),
+                "top_k": top_k,
+                "filter_type": filter_type,
+            },
+        )
         return documents
 
     def delete_collection(self):

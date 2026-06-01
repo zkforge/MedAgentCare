@@ -5,12 +5,14 @@ LLM客户端
 """
 import asyncio
 import json
+import time
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from openai import AsyncOpenAI
 from loguru import logger
 
 from medagentcare.config import LLM_CONFIG
+from medagentcare.core.tracing import emit_trace_event
 
 
 @dataclass
@@ -86,6 +88,18 @@ class LLMClient:
             max_tokens = max_tokens or self.max_tokens
 
             logger.debug(f"Calling LLM ({self.model_type}) with {len(messages)} messages")
+            start_time = time.perf_counter()
+            await emit_trace_event(
+                stage="llm_call",
+                title="LLM 调用开始",
+                detail="正在请求模型生成文本。",
+                metadata={
+                    "operation": "chat",
+                    "model": self.model_name,
+                    "messages_count": len(messages),
+                    "max_tokens": max_tokens,
+                },
+            )
 
             response = await self.client.chat.completions.create(
                 model=self.model_name,
@@ -97,10 +111,36 @@ class LLMClient:
 
             content = response.choices[0].message.content
             logger.debug(f"LLM response length: {len(content)} chars")
+            duration_ms = round((time.perf_counter() - start_time) * 1000)
+            await emit_trace_event(
+                stage="llm_call",
+                title="LLM 调用完成",
+                detail=f"模型返回 {len(content or '')} 个字符，用时 {duration_ms / 1000:.1f}s。",
+                status="completed",
+                metadata={
+                    "operation": "chat",
+                    "model": self.model_name,
+                    "duration_ms": duration_ms,
+                    "messages_count": len(messages),
+                    "content_chars": len(content or ""),
+                },
+            )
             return content
 
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
+            duration_ms = round((time.perf_counter() - start_time) * 1000) if "start_time" in locals() else None
+            await emit_trace_event(
+                stage="llm_call",
+                title="LLM 调用失败",
+                detail=str(e)[:200],
+                status="error",
+                metadata={
+                    "operation": "chat",
+                    "model": getattr(self, "model_name", None),
+                    "duration_ms": duration_ms,
+                },
+            )
             raise
 
     async def chat_with_retry(
@@ -168,6 +208,19 @@ class LLMClient:
             max_tokens = max_tokens or self.max_tokens
 
             logger.debug(f"Calling LLM with {len(tools) if tools else 0} tools")
+            start_time = time.perf_counter()
+            await emit_trace_event(
+                stage="llm_call",
+                title="LLM 工具决策开始",
+                detail="正在请求模型判断是否调用 Skill。",
+                metadata={
+                    "operation": "chat_with_tools",
+                    "model": self.model_name,
+                    "messages_count": len(messages),
+                    "tools_count": len(tools) if tools else 0,
+                    "max_tokens": max_tokens,
+                },
+            )
 
             # 准备请求参数
             request_params = {
@@ -201,14 +254,45 @@ class LLMClient:
                     ))
                 logger.debug(f"LLM requested {len(tool_calls)} tool calls")
 
-            return LLMResponse(
+            result = LLMResponse(
                 content=message.content,
                 tool_calls=tool_calls,
                 finish_reason=finish_reason
             )
+            duration_ms = round((time.perf_counter() - start_time) * 1000)
+            await emit_trace_event(
+                stage="llm_call",
+                title="LLM 工具决策完成",
+                detail=f"finish_reason={finish_reason}，用时 {duration_ms / 1000:.1f}s。",
+                status="completed",
+                metadata={
+                    "operation": "chat_with_tools",
+                    "model": self.model_name,
+                    "duration_ms": duration_ms,
+                    "messages_count": len(messages),
+                    "tools_count": len(tools) if tools else 0,
+                    "tool_calls": [tool_call.name for tool_call in tool_calls],
+                    "finish_reason": finish_reason,
+                    "content_chars": len(message.content or ""),
+                },
+            )
+            return result
 
         except Exception as e:
             logger.error(f"LLM call with tools failed: {e}")
+            duration_ms = round((time.perf_counter() - start_time) * 1000) if "start_time" in locals() else None
+            await emit_trace_event(
+                stage="llm_call",
+                title="LLM 工具决策失败",
+                detail=str(e)[:200],
+                status="error",
+                metadata={
+                    "operation": "chat_with_tools",
+                    "model": getattr(self, "model_name", None),
+                    "duration_ms": duration_ms,
+                    "tools_count": len(tools) if tools else 0,
+                },
+            )
             raise
 
     def create_tool_message(

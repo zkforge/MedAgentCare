@@ -261,6 +261,7 @@ function progressStageLabel(stage?: string) {
   const labels: Record<string, string> = {
     request_received: "请求",
     memory_lookup: "记忆",
+    memory_operation: "记忆调用",
     lead_assessment: "分析",
     routing: "路由",
     subtask_created: "任务",
@@ -268,6 +269,10 @@ function progressStageLabel(stage?: string) {
     subtask_started: "Agent",
     subtask_completed: "Agent",
     subtask_failed: "Agent",
+    llm_call: "LLM",
+    skill_call: "Skill",
+    knowledge_search: "Milvus",
+    web_search: "Web",
     synthesis: "汇总",
     summary: "摘要",
     memory_save: "保存",
@@ -281,6 +286,10 @@ function progressIcon(stage?: string, status?: string) {
   if (status === "warning" || status === "error") return <CircleAlert size={15} />;
   if (status === "running") return <Loader2 size={15} className="spin" />;
   if (stage === "memory_lookup" || stage === "memory_save") return <Database size={15} />;
+  if (stage === "memory_operation" || stage === "knowledge_search") return <Database size={15} />;
+  if (stage === "llm_call") return <Brain size={15} />;
+  if (stage === "skill_call") return <ListChecks size={15} />;
+  if (stage === "web_search") return <Network size={15} />;
   if (stage === "lead_assessment") return <Brain size={15} />;
   if (stage === "routing") return <GitBranch size={15} />;
   if (stage === "subtask_created") return <ListChecks size={15} />;
@@ -303,6 +312,51 @@ function deriveProgressStatus(
   return "running";
 }
 
+function metadataText(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).join(", ");
+  }
+  return "";
+}
+
+function traceDurationMs(event: RuntimeProgressEvent) {
+  const value = event.metadata?.duration_ms;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function progressStepClass(event: RuntimeProgressEvent & { displayStatus: string }) {
+  const classes = ["progress-step", event.displayStatus];
+  if (event.metadata?.trace) classes.push("trace-step");
+
+  const durationMs = traceDurationMs(event);
+  if (durationMs !== null && durationMs >= 30000) classes.push("very-slow");
+  else if (durationMs !== null && durationMs >= 10000) classes.push("slow");
+
+  return classes.join(" ");
+}
+
+function traceChips(event: RuntimeProgressEvent) {
+  const metadata = event.metadata;
+  if (!metadata?.trace) return [];
+
+  const chips = [
+    metadataText(metadata, "operation"),
+    metadataText(metadata, "model"),
+    metadataText(metadata, "skill"),
+    metadataText(metadata, "provider"),
+    metadataText(metadata, "tool_calls"),
+  ].filter(Boolean);
+
+  const durationMs = traceDurationMs(event);
+  if (durationMs !== null) chips.unshift(`${(durationMs / 1000).toFixed(1)}s`);
+
+  return chips.slice(0, 5);
+}
+
 function ProgressTimeline({
   events,
   status,
@@ -320,11 +374,13 @@ function ProgressTimeline({
     displayStatus: deriveProgressStatus(event, index, events.length, isStreaming),
   }));
   const completedCount = displayEvents.filter((event) => event.displayStatus === "completed").length;
+  const traceCount = displayEvents.filter((event) => event.metadata?.trace).length;
   const elapsedText = formatDuration(progressElapsedSeconds(events, totalTimeSeconds));
   const summaryText = latestEvent?.title ?? status ?? "等待后端返回运行进度";
   const summaryDetail = latestEvent?.detail ?? "SSE 连接建立后会显示后端关键执行事件。";
   const completedSummary = [
     `${events.length} 个事件`,
+    traceCount ? `${traceCount} 个调用` : null,
     `${completedCount} 个完成`,
     elapsedText ? `耗时 ${elapsedText}` : null,
   ]
@@ -350,7 +406,7 @@ function ProgressTimeline({
           </div>
         ) : (
           displayEvents.map((event, index) => (
-            <div className={`progress-step ${event.displayStatus}`} key={`${event.stage}-${index}`}>
+            <div className={progressStepClass(event)} key={`${event.stage}-${index}`}>
               <div className="progress-step-marker">{progressIcon(event.stage, event.displayStatus)}</div>
               <div className="progress-step-body">
                 <div className="progress-step-heading">
@@ -360,6 +416,13 @@ function ProgressTimeline({
                 </div>
                 <strong>{event.title ?? event.stage ?? "运行事件"}</strong>
                 {event.detail ? <p>{event.detail}</p> : null}
+                {traceChips(event).length ? (
+                  <div className="trace-chip-row">
+                    {traceChips(event).map((chip) => (
+                      <span key={chip}>{chip}</span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           ))
