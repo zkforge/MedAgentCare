@@ -1,17 +1,15 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
+  Activity,
   AlertTriangle,
   ArrowUp,
   Brain,
   CheckCircle2,
   CircleAlert,
   CircleDotDashed,
-  Clipboard,
   Database,
   GitBranch,
-  Github,
-  HeartPulse,
   ListChecks,
   Loader2,
   MessageSquare,
@@ -39,8 +37,12 @@ type ChatResponse = {
   subtasks_completed?: number;
   total_time?: number;
   timeout_occurred?: boolean;
-  swarm_metadata?: Record<string, unknown>;
   progress_events?: RuntimeProgressEvent[];
+  status?: string;
+  interview_round?: number;
+  max_rounds?: number;
+  covered_dimensions?: string[];
+  remaining_dimensions?: string[];
   [key: string]: unknown;
 };
 
@@ -77,15 +79,13 @@ type ChatSession = {
   messages: ChatMessage[];
 };
 
-const STORAGE_KEY = "medagentcare.sessions.v1";
+const STORAGE_KEY = "medagentcare.sessions.v2";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 const EXAMPLE_QUESTIONS = [
   "35岁，头痛发热两天，体温38.2度，有高血压史，需要注意什么？",
   "最近一周胸闷气短，活动后更明显，偶尔出冷汗，是否需要尽快就医？",
   "糖尿病患者最近空腹血糖偏高，饮食和运动上应该如何调整？",
   "孩子咳嗽三天伴低热，没有明显呼吸困难，居家观察需要看哪些信号？",
-  "长期失眠、白天乏力，最近压力较大，有哪些可能原因和改善建议？",
-  "体检发现血压偏高，平时没有症状，下一步应该怎么管理？",
 ];
 const INLINE_MARKDOWN_COMPONENTS = {
   p: ({ children }: { children?: ReactNode }) => <>{children}</>,
@@ -106,13 +106,25 @@ function createSession(): ChatSession {
   };
 }
 
+function isChatSession(value: unknown): value is ChatSession {
+  const candidate = value as ChatSession;
+  return Boolean(
+    candidate &&
+      typeof candidate.id === "string" &&
+      typeof candidate.title === "string" &&
+      Array.isArray(candidate.messages),
+  );
+}
+
 function loadSessions(): ChatSession[] {
   try {
     const raw = window.localStorage?.getItem(STORAGE_KEY);
     if (!raw) return [createSession()];
 
-    const parsed = JSON.parse(raw) as ChatSession[];
-    return parsed.length > 0 ? parsed : [createSession()];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [createSession()];
+    const sessions = parsed.filter(isChatSession);
+    return sessions.length > 0 ? sessions : [createSession()];
   } catch {
     return [createSession()];
   }
@@ -127,15 +139,10 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function summarizeResponse(response?: ChatResponse) {
-  if (!response) return {};
-  return {
-    agents_involved: response.agents_involved ?? [],
-    subtasks_completed: response.subtasks_completed ?? 0,
-    total_time: response.total_time ?? null,
-    timeout_occurred: response.timeout_occurred ?? false,
-    swarm_enabled: response.swarm_enabled ?? false,
-  };
+function formatBooleanStatus(value?: boolean) {
+  if (value === true) return "已配置";
+  if (value === false) return "未配置";
+  return "未知";
 }
 
 function firstLineTitle(text: string) {
@@ -270,15 +277,15 @@ function progressStageLabel(stage?: string) {
 }
 
 function progressIcon(stage?: string, status?: string) {
-  if (status === "completed") return <CheckCircle2 size={16} />;
-  if (status === "warning" || status === "error") return <CircleAlert size={16} />;
-  if (status === "running") return <Loader2 size={16} className="spin" />;
-  if (stage === "memory_lookup" || stage === "memory_save") return <Database size={16} />;
-  if (stage === "lead_assessment") return <Brain size={16} />;
-  if (stage === "routing") return <GitBranch size={16} />;
-  if (stage === "subtask_created") return <ListChecks size={16} />;
-  if (stage === "worker_execution" || stage?.startsWith("subtask_")) return <Network size={16} />;
-  return <CircleDotDashed size={16} />;
+  if (status === "completed") return <CheckCircle2 size={15} />;
+  if (status === "warning" || status === "error") return <CircleAlert size={15} />;
+  if (status === "running") return <Loader2 size={15} className="spin" />;
+  if (stage === "memory_lookup" || stage === "memory_save") return <Database size={15} />;
+  if (stage === "lead_assessment") return <Brain size={15} />;
+  if (stage === "routing") return <GitBranch size={15} />;
+  if (stage === "subtask_created") return <ListChecks size={15} />;
+  if (stage === "worker_execution" || stage?.startsWith("subtask_")) return <Network size={15} />;
+  return <CircleDotDashed size={15} />;
 }
 
 function deriveProgressStatus(
@@ -315,7 +322,7 @@ function ProgressTimeline({
   const completedCount = displayEvents.filter((event) => event.displayStatus === "completed").length;
   const elapsedText = formatDuration(progressElapsedSeconds(events, totalTimeSeconds));
   const summaryText = latestEvent?.title ?? status ?? "等待后端返回运行进度";
-  const summaryDetail = latestEvent?.detail ?? "SSE 连接已建立后会逐步显示关键执行事件。";
+  const summaryDetail = latestEvent?.detail ?? "SSE 连接建立后会显示后端关键执行事件。";
   const completedSummary = [
     `${events.length} 个事件`,
     `${completedCount} 个完成`,
@@ -385,10 +392,10 @@ export default function App() {
     .find((message) => message.response)?.response;
 
   const metrics = {
-    swarm: latestResponse?.swarm_enabled ?? false,
+    swarm: latestResponse?.swarm_enabled ? "已启用" : latestResponse ? "单 Agent" : "待运行",
     agents: latestResponse?.agents_involved?.length ?? (latestResponse ? 1 : 0),
     subtasks: latestResponse?.subtasks_completed ?? 0,
-    time: typeof latestResponse?.total_time === "number" ? `${latestResponse.total_time.toFixed(1)}s` : "0.0s",
+    time: typeof latestResponse?.total_time === "number" ? `${latestResponse.total_time.toFixed(1)}s` : "--",
   };
 
   useEffect(() => {
@@ -515,7 +522,7 @@ export default function App() {
         body: JSON.stringify({
           question: submittedQuestion,
           context: {},
-          enable_swarm: false,
+          enable_swarm: true,
           session_id: activeSession.id,
         }),
         signal: controller.signal,
@@ -541,18 +548,21 @@ export default function App() {
         buffer = parsed.remaining;
 
         for (const streamEvent of parsed.events) {
+          if (streamEvent.event === "start") {
+            patchMessage(activeSession.id, assistantMessageId, {
+              progressStatus: "SSE 连接已建立，等待后端事件...",
+            });
+            continue;
+          }
+
           if (streamEvent.event === "progress" && typeof streamEvent.data === "object" && streamEvent.data) {
             progressEvents.push(streamEvent.data as RuntimeProgressEvent);
             const visibleEvents = progressEvents.slice(-80);
-            patchMessage(
-              activeSession.id,
-              assistantMessageId,
-              {
-                progressEvents: visibleEvents,
-                progressStatus: "正在生成最终回答...",
-                response: { progress_events: visibleEvents },
-              },
-            );
+            patchMessage(activeSession.id, assistantMessageId, {
+              progressEvents: visibleEvents,
+              progressStatus: "正在生成最终回答...",
+              response: { progress_events: visibleEvents },
+            });
             continue;
           }
 
@@ -580,14 +590,30 @@ export default function App() {
               createdAt: new Date().toISOString(),
               isStreaming: false,
               progressEvents: visibleEvents,
-              progressStatus: `第 ${round}/${maxRounds} 轮问诊 · 已覆盖: ${covered.join("、") || "无"} · 待追问: ${remaining.join("、")}`,
+              progressStatus: `第 ${round}/${maxRounds} 轮问诊 · 已覆盖: ${covered.join("、") || "无"} · 待追问: ${remaining.join("、") || "无"}`,
               response: {
+                status: "need_more_info",
                 progress_events: visibleEvents,
                 interview_round: round,
                 max_rounds: maxRounds,
                 covered_dimensions: covered,
                 remaining_dimensions: remaining,
-              } as ChatResponse,
+              },
+            });
+            continue;
+          }
+
+          if (streamEvent.event === "interview_complete" && typeof streamEvent.data === "object" && streamEvent.data) {
+            const data = streamEvent.data as Record<string, unknown>;
+            const visibleEvents = progressEvents.slice(-80);
+            patchMessage(activeSession.id, assistantMessageId, {
+              progressEvents: visibleEvents,
+              progressStatus: "问诊信息已完成，正在进入诊断分析...",
+              response: {
+                status: "interview_complete",
+                progress_events: visibleEvents,
+                session_id: data.session_id as string | undefined,
+              },
             });
             continue;
           }
@@ -602,6 +628,14 @@ export default function App() {
               progressEvents: visibleEvents,
               progressStatus: "已完成",
               response: { ...data, progress_events: visibleEvents },
+            });
+            continue;
+          }
+
+          if (streamEvent.event === "done") {
+            patchMessage(activeSession.id, assistantMessageId, {
+              isStreaming: false,
+              progressStatus: "已完成",
             });
             continue;
           }
@@ -633,74 +667,100 @@ export default function App() {
 
   return (
     <main className="workbench-shell">
-      <aside className="sidebar">
+      <aside className="sidebar" aria-label="会话列表和服务状态">
         <div className="brand-block">
-          <h1>MedAgentCare</h1>
-          <p>临床咨询工作台</p>
+          <span>MedAgentCare</span>
+          <h1>临床咨询工作台</h1>
         </div>
 
         <button className="new-button" type="button" onClick={startSession}>
-          <Plus size={19} />
+          <Plus size={18} />
           新建咨询
         </button>
 
         <section className="recent-section">
           <h2>最近会话</h2>
           <div className="session-list">
-            {sessions.length === 0 ? (
-              <p className="empty-recent">暂无最近会话</p>
-            ) : (
-              sessions.map((session) => (
-                <button
-                  className={`session-item ${session.id === activeSessionId ? "active" : ""}`}
-                  key={session.id}
-                  type="button"
-                  onClick={() => setActiveSessionId(session.id)}
-                >
-                  <MessageSquare size={18} />
-                  <span>{session.title}</span>
-                  <small>{formatDate(session.updatedAt)}</small>
-                  <Trash2
-                    aria-label="删除会话"
-                    className="delete-session"
-                    size={16}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      deleteSession(session.id);
-                    }}
-                  />
-                </button>
-              ))
-            )}
+            {sessions.map((session) => (
+              <button
+                className={`session-item ${session.id === activeSessionId ? "active" : ""}`}
+                key={session.id}
+                type="button"
+                onClick={() => setActiveSessionId(session.id)}
+              >
+                <MessageSquare size={17} />
+                <span>{session.title}</span>
+                <small>{formatDate(session.updatedAt)}</small>
+                <Trash2
+                  aria-label="删除会话"
+                  className="delete-session"
+                  size={16}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    deleteSession(session.id);
+                  }}
+                />
+              </button>
+            ))}
           </div>
         </section>
 
-        <div className="sidebar-footer">
-          <div className="sidebar-health" title={health?.status === "ok" ? "服务运行正常" : healthError || "服务未连接"}>
+        <section className="status-section">
+          <h2>服务状态</h2>
+          <div className="status-card">
             <div className={`health-dot ${health?.status === "ok" ? "ok" : "error"}`} />
-            <span className="health-text">{health?.status === "ok" ? "System Online" : "Disconnected"}</span>
+            <div>
+              <strong>{health?.status === "ok" ? "API 已连接" : "API 未连接"}</strong>
+              <span>{health?.service ?? healthError ?? API_BASE_URL}</span>
+            </div>
           </div>
-        </div>
+          <div className="status-grid">
+            <div>
+              <span>LLM</span>
+              <strong>{formatBooleanStatus(health?.llm_configured)}</strong>
+            </div>
+            <div>
+              <span>Mem0</span>
+              <strong>{formatBooleanStatus(health?.mem0_configured)}</strong>
+            </div>
+          </div>
+        </section>
       </aside>
 
       <section className="main-panel">
         <header className="app-bar">
           <div>
-            <h2>医疗咨询工作台</h2>
+            <span className="section-kicker">SSE / Clinical Stream</span>
+            <h2>{activeSession?.title ?? "新的咨询"}</h2>
           </div>
-          <a className="github-link" href="https://github.com/zkforge/MedAgentCare" target="_blank" rel="noreferrer" aria-label="打开 GitHub">
-            <Github size={20} />
-          </a>
+          <div className="runtime-strip" aria-label="最近一次运行概览">
+            <div>
+              <span>模式</span>
+              <strong>{metrics.swarm}</strong>
+            </div>
+            <div>
+              <span>Agent</span>
+              <strong>{metrics.agents}</strong>
+            </div>
+            <div>
+              <span>子任务</span>
+              <strong>{metrics.subtasks}</strong>
+            </div>
+            <div>
+              <span>耗时</span>
+              <strong>{metrics.time}</strong>
+            </div>
+          </div>
         </header>
 
         <div className="chat-container">
           {activeSession?.messages.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">
-                <Stethoscope size={32} />
+                <Stethoscope size={30} />
               </div>
-              <h3>今天想咨询什么健康问题？</h3>
-              <p>输入症状、持续时间、既往史或医学问题，开始一次 AI 辅助咨询。</p>
+              <h3>输入真实症状与背景，查看流式分析过程</h3>
+              <p>建议包含年龄、持续时间、严重程度、既往病史和已用药情况。高危症状应优先线下就医。</p>
               <div className="example-grid" aria-label="示例医学问题">
                 {EXAMPLE_QUESTIONS.map((exampleQuestion) => (
                   <button
@@ -721,7 +781,7 @@ export default function App() {
               <article className={`message-row ${message.role}`} key={message.id}>
                 {message.role !== "user" ? (
                   <div className="assistant-avatar">
-                    <Stethoscope size={18} />
+                    {message.role === "error" ? <AlertTriangle size={17} /> : <Activity size={17} />}
                   </div>
                 ) : null}
                 <div className="message-card">
@@ -748,6 +808,7 @@ export default function App() {
                   </div>
                   {message.response?.suggestions?.length ? (
                     <div className="suggestion-list">
+                      <strong>核心建议</strong>
                       {message.response.suggestions.map((item, index) => (
                         <span key={`${item}-${index}`}>
                           <InlineMarkdown>{item}</InlineMarkdown>
@@ -770,7 +831,7 @@ export default function App() {
             {isSending ? (
               <div className="loading-row">
                 <Loader2 size={18} className="spin" />
-                正在等待 Agent 响应
+                正在等待后端流式事件
               </div>
             ) : null}
           </div>
@@ -790,8 +851,9 @@ export default function App() {
                 }
               }}
             />
-            <button className="send-button" type="button" aria-label="发送消息" disabled={!question.trim() || isSending} onClick={sendQuestion}>
+            <button className="send-button" type="button" disabled={!question.trim() || isSending} onClick={sendQuestion}>
               {isSending ? <Loader2 size={18} className="spin" /> : <ArrowUp size={18} strokeWidth={2.5} />}
+              <span>发送</span>
             </button>
           </div>
         </footer>
