@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: "1"
+      PIP_NO_CACHE_DIR: "1"
+      UV_COMPILE_BYTECODE: "1"
+      UV_LINK_MODE: copy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install backend dependencies
+        run: |
+          uv sync --locked --no-dev \
+            --no-install-package torch \
+            --no-install-package triton \
+            --no-install-package cuda-bindings \
+            --no-install-package cuda-pathfinder \
+            --no-install-package cuda-toolkit \
+            --no-install-package nvidia-cublas \
+            --no-install-package nvidia-cuda-cupti \
+            --no-install-package nvidia-cuda-nvrtc \
+            --no-install-package nvidia-cuda-runtime \
+            --no-install-package nvidia-cudnn-cu13 \
+            --no-install-package nvidia-cufft \
+            --no-install-package nvidia-cufile \
+            --no-install-package nvidia-curand \
+            --no-install-package nvidia-cusolver \
+            --no-install-package nvidia-cusparse \
+            --no-install-package nvidia-cusparselt-cu13 \
+            --no-install-package nvidia-nccl-cu13 \
+            --no-install-package nvidia-nvjitlink \
+            --no-install-package nvidia-nvshmem-cu13 \
+            --no-install-package nvidia-nvtx
+          uv pip install --python .venv/bin/python --no-deps \
+            --index-url https://download.pytorch.org/whl/cpu \
+            "torch==2.12.0+cpu"
+
+      - name: Run backend tests
+        run: .venv/bin/python -m unittest discover -s tests
+
+      - name: Compile Python sources
+        run: .venv/bin/python -m compileall -q src tests .agents/skills
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
