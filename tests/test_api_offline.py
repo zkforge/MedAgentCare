@@ -3,6 +3,7 @@ import importlib
 import json
 import os
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import patch
@@ -48,7 +49,12 @@ class ApiOfflineTests(unittest.TestCase):
 
         fake_swarm.process_with_swarm = fake_process_with_swarm
 
-        request = api.ChatRequest(question="头痛怎么办？", enable_swarm=False, session_id="offline-test")
+        request = api.ChatRequest(
+            question="头痛怎么办？",
+            enable_swarm=False,
+            session_id="offline-test",
+            memory={"enabled": True, "backend": "local"},
+        )
         with patch.dict(sys.modules, {"medagentcare.swarm": fake_swarm}):
             result = asyncio.run(api.chat(request))
 
@@ -56,6 +62,7 @@ class ApiOfflineTests(unittest.TestCase):
         self.assertFalse(result["swarm_enabled"])
         self.assertFalse(captured["enable_swarm"])
         self.assertEqual(captured["session_id"], "offline-test")
+        self.assertEqual(captured["memory"], {"enabled": True, "backend": "local"})
 
     def test_chat_stream_emits_result_event(self):
         api = _load_api_with_env({})
@@ -111,6 +118,123 @@ class ApiOfflineTests(unittest.TestCase):
         self.assertIn("结果汇总完成", body)
         self.assertFalse(captured["enable_swarm"])
         self.assertEqual(captured["session_id"], "stream-test")
+
+    def test_memory_status_and_local_confirm_delete_endpoints(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            api = _load_api_with_env({"MEDAGENTCARE_MEMORY_DIR": tmp})
+            local_memory = api._local_memory()
+            local_memory.save_raw_session(
+                session_id="memory-api-test",
+                question="最近一周胸闷气短",
+                answer="建议尽快就医评估。",
+                suggestions=["尽快就医"],
+                disclaimer="仅供参考",
+                backend="local",
+            )
+
+            status = asyncio.run(api.memory_status())
+            self.assertEqual(status["local"]["raw_count"], 1)
+
+            request = api.MemorySummaryConfirmRequest(
+                backend="local",
+                summary={
+                    "title": "胸闷气短",
+                    "summary": "用户最近一周胸闷气短，建议尽快就医评估。",
+                    "tags": ["胸闷", "气短"],
+                },
+            )
+            confirmed = asyncio.run(api.confirm_memory_summary("memory-api-test", request))
+            self.assertEqual(confirmed["backend"], "local")
+
+            snapshot = asyncio.run(api.memory_local())
+            self.assertEqual(snapshot["status"]["summary_count"], 1)
+
+            deleted = asyncio.run(api.delete_memory_session("memory-api-test"))
+            self.assertTrue(deleted["deleted"]["raw"])
+            self.assertTrue(deleted["deleted"]["summary"])
+
+    def test_generate_memory_summary_normalizes_common_llm_type_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            api = _load_api_with_env({"MEDAGENTCARE_MEMORY_DIR": tmp})
+            api._local_memory().save_raw_session(
+                session_id="summary-drift-test",
+                question="最近一周胸闷气短，活动后更明显，偶尔出冷汗",
+                answer="建议尽快就医评估。",
+                suggestions=["尽快就医", "记录症状变化"],
+                disclaimer="仅供参考",
+                backend="local",
+            )
+            fake_core = types.ModuleType("medagentcare.core")
+
+            class FakeLLMClient:
+                async def chat(self, messages, temperature=None, max_tokens=None):
+                    return json.dumps(
+                        {
+                            "title": "胸闷气短伴出冷汗",
+                            "summary": "用户最近一周胸闷气短，活动后更明显。",
+                            "tags": "胸闷，气短，出冷汗",
+                            "urgency": "high",
+                            "timeline": "最近一周",
+                            "care_recommendation": ["尽快就医", "记录症状变化"],
+                            "profile_candidates": [
+                                {
+                                    "type": "symptom",
+                                    "value": "胸闷气短",
+                                    "evidence": "用户自述最近一周胸闷气短",
+                                    "confidence": 1.0,
+                                }
+                            ],
+                        },
+                        ensure_ascii=False,
+                    )
+
+            fake_core.LLMClient = FakeLLMClient
+            with patch.dict(sys.modules, {"medagentcare.core": fake_core}):
+                result = asyncio.run(api.generate_memory_summary("summary-drift-test"))
+
+            summary = result["summary"]
+            self.assertEqual(summary["tags"], ["胸闷", "气短", "出冷汗"])
+            self.assertEqual(summary["care_recommendation"], "尽快就医；记录症状变化")
+            self.assertEqual(summary["profile_candidates"][0]["confidence"], "高")
+
+    def test_sessions_endpoints_and_chat_persistence(self):
+        with tempfile.TemporaryDirectory() as sessions_tmp, tempfile.TemporaryDirectory() as memory_tmp:
+            api = _load_api_with_env({
+                "MEDAGENTCARE_SESSIONS_DIR": sessions_tmp,
+                "MEDAGENTCARE_MEMORY_DIR": memory_tmp,
+            })
+            fake_swarm = types.ModuleType("medagentcare.swarm")
+
+            async def fake_process_with_swarm(**kwargs):
+                return {
+                    "answer": "建议观察症状变化。",
+                    "session_id": kwargs["session_id"],
+                    "swarm_enabled": kwargs["enable_swarm"],
+                    "suggestions": ["记录症状"],
+                    "disclaimer": "仅供参考",
+                }
+
+            fake_swarm.process_with_swarm = fake_process_with_swarm
+
+            created = asyncio.run(api.create_session(api.SessionCreateRequest(session_id="session-api-test")))
+            self.assertEqual(created["id"], "session-api-test")
+
+            request = api.ChatRequest(question="头痛怎么办？", session_id="session-api-test")
+            with patch.dict(sys.modules, {"medagentcare.swarm": fake_swarm}):
+                result = asyncio.run(api.chat(request))
+
+            self.assertEqual(result["answer"], "建议观察症状变化。")
+            session = asyncio.run(api.get_session("session-api-test"))
+            self.assertEqual(len(session["messages"]), 2)
+            self.assertEqual(session["messages"][0]["role"], "user")
+            self.assertEqual(session["messages"][1]["role"], "assistant")
+
+            listed = asyncio.run(api.list_sessions())
+            self.assertEqual(listed["sessions"][0]["id"], "session-api-test")
+            self.assertEqual(listed["sessions"][0]["messages"], [])
+
+            deleted = asyncio.run(api.delete_session("session-api-test"))
+            self.assertTrue(deleted["deleted"])
 
     def test_chat_stream_maps_business_errors_to_error_event(self):
         api = _load_api_with_env({})

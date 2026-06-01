@@ -57,6 +57,7 @@ frontend/vite.config.d.ts
 # 记忆数据
 /tmp/qdrant/
 .mem0/
+.medagentcare/
 memory/agents/
 memory/swarm/
 

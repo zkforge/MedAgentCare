@@ -31,6 +31,18 @@ class _FakeLongTermMemory:
         return None
 
 
+class _FakeLocalHealthMemory:
+    def __init__(self):
+        self.saved = None
+
+    def search(self, query, limit=3):
+        return []
+
+    def save_raw_session(self, **kwargs):
+        self.saved = kwargs
+        return kwargs
+
+
 class _FailingLeadAgent:
     async def assess_and_decompose(self, question, context=None):
         raise AssertionError("fast consultation path should not call LeadAgent")
@@ -54,6 +66,7 @@ class SwarmRoutingTests(unittest.TestCase):
         coordinator.progress_callback = None
         coordinator.short_term_memory = _FakeShortTermMemory()
         coordinator.long_term_memory = _FakeLongTermMemory()
+        coordinator.local_health_memory = _FakeLocalHealthMemory()
         coordinator.lead_agent = _FailingLeadAgent()
         coordinator.consultation_agent = _FakeConsultationAgent()
 
@@ -67,11 +80,32 @@ class SwarmRoutingTests(unittest.TestCase):
         self.assertFalse(result["swarm_enabled"])
         self.assertEqual(result["session_id"], "routing-test")
         self.assertEqual(result["route_reason"], "简单常见咨询快速路由到 consultation_agent")
-        self.assertEqual(
-            coordinator.long_term_memory.saved_metadata["mode"],
-            "fast_consultation",
-        )
+        self.assertIsNone(coordinator.long_term_memory.saved_metadata)
+        self.assertIsNone(coordinator.local_health_memory.saved)
         self.assertFalse(coordinator.long_term_memory.search_called)
+
+    def test_enabled_memory_saves_raw_only_on_fast_consultation(self):
+        coordinator = object.__new__(SwarmCoordinator)
+        coordinator.enable_swarm = True
+        coordinator.progress_callback = None
+        coordinator.short_term_memory = _FakeShortTermMemory()
+        coordinator.long_term_memory = _FakeLongTermMemory()
+        coordinator.local_health_memory = _FakeLocalHealthMemory()
+        coordinator.lead_agent = _FailingLeadAgent()
+        coordinator.consultation_agent = _FakeConsultationAgent()
+
+        result = asyncio.run(
+            coordinator.process(
+                "35岁，头痛发热两天，体温38.2度，有高血压史，需要注意什么？",
+                session_id="routing-memory-test",
+                memory={"enabled": True, "backend": "local"},
+            )
+        )
+
+        self.assertTrue(result["memory"]["raw_session_saved"])
+        self.assertEqual(coordinator.local_health_memory.saved["session_id"], "routing-memory-test")
+        self.assertEqual(coordinator.local_health_memory.saved["backend"], "local")
+        self.assertIsNone(coordinator.long_term_memory.saved_metadata)
 
     def test_high_risk_symptoms_do_not_use_fast_consultation(self):
         self.assertFalse(

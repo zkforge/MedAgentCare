@@ -104,7 +104,8 @@ class LongTermMemory:
         session_id: str,
         question: str,
         answer: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        user_id: str = "local_default",
     ) -> Optional[str]:
         """
         添加会话总结到 Mem0
@@ -142,7 +143,7 @@ class LongTermMemory:
             # 添加到 Mem0
             result = self.mem0.add(
                 messages=[{"role": "user", "content": memory_text}],
-                user_id="medagentcare_user",  # 固定用户ID（可扩展为多用户）
+                user_id=user_id,
                 metadata={
                     "type": "session_summary",
                     "session_id": session_id,
@@ -192,7 +193,8 @@ class LongTermMemory:
     def search_similar_sessions(
         self,
         query: str,
-        limit: int = 5
+        limit: int = 5,
+        user_id: str = "local_default",
     ) -> List[Dict[str, Any]]:
         """
         搜索相似的历史会话（向量相似度搜索，自动去重）
@@ -229,7 +231,7 @@ class LongTermMemory:
         try:
             results = self.mem0.search(
                 query=query,
-                user_id="medagentcare_user",
+                user_id=user_id,
                 limit=limit * 2  # 多获取一些以便去重后有足够结果
             )
 

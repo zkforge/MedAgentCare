@@ -13,6 +13,12 @@ services:
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.7}
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-8192}
       MEM0_API_KEY: ${MEM0_API_KEY:-}
+      MEDAGENTCARE_MEMORY_ENABLED: ${MEDAGENTCARE_MEMORY_ENABLED:-1}
+      MEDAGENTCARE_MEMORY_BACKEND: ${MEDAGENTCARE_MEMORY_BACKEND:-local}
+      MEDAGENTCARE_MEMORY_MAX_SESSIONS: ${MEDAGENTCARE_MEMORY_MAX_SESSIONS:-100}
+      MEDAGENTCARE_MEMORY_DIR: ${MEDAGENTCARE_DOCKER_MEMORY_DIR:-/data/memory}
+      MEDAGENTCARE_SESSION_MAX_SESSIONS: ${MEDAGENTCARE_SESSION_MAX_SESSIONS:-100}
+      MEDAGENTCARE_SESSIONS_DIR: ${MEDAGENTCARE_DOCKER_SESSIONS_DIR:-/data/sessions}
       MEDAGENTCARE_CORS_ORIGINS: ${MEDAGENTCARE_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       MEDAGENTCARE_MILVUS_DB_PATH: ${MEDAGENTCARE_DOCKER_MILVUS_DB_PATH:-/data/knowledge/milvus_lite.db}
       HF_ENDPOINT: ${HF_ENDPOINT:-}
@@ -21,6 +27,8 @@ services:
       TORCH_HOME: ${MEDAGENTCARE_DOCKER_TORCH_HOME:-/data/model-cache/torch}
     volumes:
       - medagentcare-data:/data
+      - ./.medagentcare/memory:/data/memory
+      - ./.medagentcare/sessions:/data/sessions
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 10s

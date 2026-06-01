@@ -12,7 +12,19 @@ def search_similar_cases(query: str, limit: int = 3):
 
     ensure_project_path()
     try:
+        from medagentcare.memory.request_context import get_request_memory
         from medagentcare.memory import LongTermMemory
+
+        request_memory = get_request_memory()
+        if not request_memory.get("effective_enabled"):
+            return success(
+                "本次长期记忆未开启，已跳过相似历史案例检索。",
+                query=query,
+                enabled=False,
+                total_found=0,
+                results=[],
+                disabled_reason=request_memory.get("disabled_reason", "request_disabled"),
+            )
 
         memory = LongTermMemory()
         if not memory.enabled:
@@ -23,7 +35,11 @@ def search_similar_cases(query: str, limit: int = 3):
                 total_found=0,
                 results=[],
             )
-        results = memory.search_similar_sessions(query=query, limit=limit)
+        results = memory.search_similar_sessions(
+            query=query,
+            limit=limit,
+            user_id=request_memory.get("user_id", "local_default"),
+        )
     except Exception as exc:
         return failure("长期记忆检索失败。", query=query, cause=str(exc))
 

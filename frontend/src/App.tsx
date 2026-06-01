@@ -25,6 +25,52 @@ type HealthStatus = {
   service?: string;
   llm_configured?: boolean;
   mem0_configured?: boolean;
+  memory_enabled?: boolean;
+  memory_default_backend?: string;
+};
+
+type MemoryBackend = "local" | "mem0";
+
+type MemoryPreferences = {
+  enabled: boolean;
+  backend: MemoryBackend;
+};
+
+type MemoryStatus = {
+  enabled?: boolean;
+  default_backend?: string;
+  user_id?: string;
+  mem0_configured?: boolean;
+  local?: {
+    memory_dir?: string;
+    raw_count?: number;
+    summary_count?: number;
+    max_sessions?: number;
+  };
+};
+
+type MemorySummaryPreview = {
+  title: string;
+  summary: string;
+  tags: string[];
+  urgency: string;
+  timeline: string;
+  care_recommendation: string;
+  profile_candidates: Array<{
+    type?: string;
+    value?: string;
+    evidence?: string;
+    confidence?: string;
+  }>;
+};
+
+type MemoryIndexSnapshot = {
+  summaries?: Array<{
+    session_id?: string;
+    title?: string;
+    confirmed_at?: string;
+    tags?: string[];
+  }>;
 };
 
 type ChatResponse = {
@@ -43,6 +89,12 @@ type ChatResponse = {
   max_rounds?: number;
   covered_dimensions?: string[];
   remaining_dimensions?: string[];
+  memory?: {
+    effective_enabled?: boolean;
+    backend?: string;
+    raw_session_saved?: boolean;
+    raw_session_error?: string | null;
+  };
   [key: string]: unknown;
 };
 
@@ -79,7 +131,8 @@ type ChatSession = {
   messages: ChatMessage[];
 };
 
-const STORAGE_KEY = "medagentcare.sessions.v2";
+const ACTIVE_SESSION_KEY = "medagentcare.activeSession.v1";
+const MEMORY_PREF_KEY = "medagentcare.memory.preferences.v1";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 const EXAMPLE_QUESTIONS = [
   "35岁，头痛发热两天，体温38.2度，有高血压史，需要注意什么？",
@@ -106,27 +159,25 @@ function createSession(): ChatSession {
   };
 }
 
-function isChatSession(value: unknown): value is ChatSession {
-  const candidate = value as ChatSession;
-  return Boolean(
-    candidate &&
-      typeof candidate.id === "string" &&
-      typeof candidate.title === "string" &&
-      Array.isArray(candidate.messages),
-  );
+function loadMemoryPreferences(): MemoryPreferences {
+  try {
+    const raw = window.localStorage?.getItem(MEMORY_PREF_KEY);
+    if (!raw) return { enabled: false, backend: "local" };
+    const parsed = JSON.parse(raw) as Partial<MemoryPreferences>;
+    return {
+      enabled: parsed.enabled === true,
+      backend: parsed.backend === "mem0" ? "mem0" : "local",
+    };
+  } catch {
+    return { enabled: false, backend: "local" };
+  }
 }
 
-function loadSessions(): ChatSession[] {
+function loadActiveSessionId() {
   try {
-    const raw = window.localStorage?.getItem(STORAGE_KEY);
-    if (!raw) return [createSession()];
-
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [createSession()];
-    const sessions = parsed.filter(isChatSession);
-    return sessions.length > 0 ? sessions : [createSession()];
+    return window.localStorage?.getItem(ACTIVE_SESSION_KEY) || "";
   } catch {
-    return [createSession()];
+    return "";
   }
 }
 
@@ -137,12 +188,6 @@ function formatDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
-}
-
-function formatBooleanStatus(value?: boolean) {
-  if (value === true) return "已配置";
-  if (value === false) return "未配置";
-  return "未知";
 }
 
 function firstLineTitle(text: string) {
@@ -437,12 +482,20 @@ function InlineMarkdown({ children }: { children: string }) {
 }
 
 export default function App() {
-  const [sessions, setSessions] = useState<ChatSession[]>(() => loadSessions());
-  const [activeSessionId, setActiveSessionId] = useState(() => sessions[0]?.id ?? createSession().id);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState(() => loadActiveSessionId());
   const [question, setQuestion] = useState("");
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [healthError, setHealthError] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [memoryPrefs, setMemoryPrefs] = useState<MemoryPreferences>(() => loadMemoryPreferences());
+  const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null);
+  const [memoryError, setMemoryError] = useState("");
+  const [memoryActionStatus, setMemoryActionStatus] = useState("");
+  const [memoryPreviews, setMemoryPreviews] = useState<Record<string, MemorySummaryPreview>>({});
+  const [confirmedMemorySessions, setConfirmedMemorySessions] = useState<Record<string, true>>({});
+  const [isMemoryPreviewOpen, setIsMemoryPreviewOpen] = useState(false);
+  const [isGeneratingMemorySummary, setIsGeneratingMemorySummary] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const activeSession = useMemo(
@@ -460,14 +513,32 @@ export default function App() {
     subtasks: latestResponse?.subtasks_completed ?? 0,
     time: typeof latestResponse?.total_time === "number" ? `${latestResponse.total_time.toFixed(1)}s` : "--",
   };
+  const latestSessionId = latestResponse?.session_id;
+  const latestMemoryPreview = latestSessionId ? memoryPreviews[latestSessionId] : undefined;
+  const isCurrentMemorySaved = Boolean(latestSessionId && confirmedMemorySessions[latestSessionId]);
+  const currentMemoryStatus = latestMemoryPreview ? "待确认" : isCurrentMemorySaved ? "已保存" : "本次未保存";
+  const canOpenMemorySummary =
+    Boolean(memoryPrefs.enabled && latestSessionId && latestResponse?.memory?.raw_session_saved) &&
+    !isCurrentMemorySaved &&
+    !isGeneratingMemorySummary;
 
   useEffect(() => {
     try {
-      window.localStorage?.setItem(STORAGE_KEY, JSON.stringify(sessions));
+      if (activeSessionId) {
+        window.localStorage?.setItem(ACTIVE_SESSION_KEY, activeSessionId);
+      }
     } catch {
-      // 本地存储不可用时保留当前内存会话。
+      // 当前会话指针保存失败不影响会话文件本身。
     }
-  }, [sessions]);
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    try {
+      window.localStorage?.setItem(MEMORY_PREF_KEY, JSON.stringify(memoryPrefs));
+    } catch {
+      // 偏好保存失败不影响本次使用。
+    }
+  }, [memoryPrefs]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -488,12 +559,83 @@ export default function App() {
         }
       });
 
+    refreshMemoryStatus(controller.signal);
+    refreshConfirmedMemorySessions(controller.signal);
+    refreshSessions(controller.signal);
+
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const session = sessions.find((item) => item.id === activeSessionId);
+    if (!session || session.messages.length > 0) return;
+    const controller = new AbortController();
+    loadSessionDetails(activeSessionId, controller.signal);
+    return () => controller.abort();
+  }, [activeSessionId]);
+
+  async function refreshSessions(signal?: AbortSignal) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/sessions`, { signal });
+      if (!response.ok) throw new Error(`sessions failed: ${response.status}`);
+      const data = (await response.json()) as { sessions?: ChatSession[] };
+      let nextSessions = data.sessions ?? [];
+
+      if (nextSessions.length === 0) {
+        const created = await createBackendSession(signal);
+        nextSessions = [created];
+      }
+
+      const storedActive = loadActiveSessionId();
+      const nextActive = nextSessions.some((session) => session.id === storedActive)
+        ? storedActive
+        : nextSessions[0]?.id ?? "";
+      setSessions(nextSessions);
+      setActiveSessionId(nextActive);
+      if (nextActive) {
+        await loadSessionDetails(nextActive, signal);
+      }
+      setHealthError("");
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      setHealthError(error instanceof Error ? error.message : "会话列表读取失败");
+      if (sessions.length === 0) {
+        const fallback = createSession();
+        setSessions([fallback]);
+        setActiveSessionId(fallback.id);
+      }
+    }
+  }
+
+  async function createBackendSession(signal?: AbortSignal) {
+    const response = await fetch(`${API_BASE_URL}/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "新的咨询" }),
+      signal,
+    });
+    if (!response.ok) throw new Error(`session create failed: ${response.status}`);
+    return (await response.json()) as ChatSession;
+  }
+
+  async function loadSessionDetails(sessionId: string, signal?: AbortSignal) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}`, { signal });
+      if (!response.ok) throw new Error(`session load failed: ${response.status}`);
+      const session = (await response.json()) as ChatSession;
+      updateSession(session);
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      setHealthError(error instanceof Error ? error.message : "会话读取失败");
+    }
+  }
+
   function updateSession(nextSession: ChatSession) {
     setSessions((current) =>
-      current.map((session) => (session.id === nextSession.id ? nextSession : session)),
+      current.some((session) => session.id === nextSession.id)
+        ? current.map((session) => (session.id === nextSession.id ? nextSession : session))
+        : [nextSession, ...current],
     );
   }
 
@@ -514,20 +656,45 @@ export default function App() {
     );
   }
 
-  function startSession() {
-    const session = createSession();
-    setSessions((current) => [session, ...current]);
-    setActiveSessionId(session.id);
-    setQuestion("");
+  async function startSession() {
+    try {
+      const session = await createBackendSession();
+      setSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
+      setActiveSessionId(session.id);
+      setQuestion("");
+    } catch (error) {
+      setHealthError(error instanceof Error ? error.message : "新建会话失败");
+    }
   }
 
-  function deleteSession(sessionId: string) {
+  async function deleteSession(sessionId: string) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error(`session delete failed: ${response.status}`);
+      setMemoryPreviews((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      setConfirmedMemorySessions((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      await refreshMemoryStatus();
+      await refreshConfirmedMemorySessions();
+    } catch (error) {
+      setHealthError(error instanceof Error ? error.message : "删除会话失败");
+      return;
+    }
+
     setSessions((current) => {
       const next = current.filter((session) => session.id !== sessionId);
       if (next.length === 0) {
-        const fallback = createSession();
-        setActiveSessionId(fallback.id);
-        return [fallback];
+        void startSession();
+        return [];
       }
       if (sessionId === activeSessionId) {
         setActiveSessionId(next[0].id);
@@ -539,6 +706,106 @@ export default function App() {
   function selectExampleQuestion(exampleQuestion: string) {
     setQuestion(exampleQuestion);
     textareaRef.current?.focus();
+  }
+
+  async function refreshMemoryStatus(signal?: AbortSignal) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/memory/status`, { signal });
+      if (!response.ok) throw new Error(`memory status failed: ${response.status}`);
+      const data = (await response.json()) as MemoryStatus;
+      setMemoryStatus(data);
+      setMemoryError("");
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      setMemoryError(error instanceof Error ? error.message : "记忆状态读取失败");
+    }
+  }
+
+  async function refreshConfirmedMemorySessions(signal?: AbortSignal) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/memory/local`, { signal });
+      if (!response.ok) throw new Error(`memory list failed: ${response.status}`);
+      const data = (await response.json()) as MemoryIndexSnapshot;
+      const confirmed = (data.summaries ?? []).reduce<Record<string, true>>((acc, item) => {
+        if (item.session_id) acc[item.session_id] = true;
+        return acc;
+      }, {});
+      setConfirmedMemorySessions(confirmed);
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      setMemoryError(error instanceof Error ? error.message : "记忆索引读取失败");
+    }
+  }
+
+  async function openMemorySummaryDialog() {
+    if (!latestSessionId || !canOpenMemorySummary) return;
+    if (latestMemoryPreview) {
+      setIsMemoryPreviewOpen(true);
+      return;
+    }
+
+    setIsGeneratingMemorySummary(true);
+    setMemoryActionStatus("正在生成记忆摘要...");
+    try {
+      const response = await fetch(`${API_BASE_URL}/memory/sessions/${encodeURIComponent(latestSessionId)}/summary/generate`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(typeof payload.detail === "string" ? payload.detail : `summary failed: ${response.status}`);
+      }
+      const data = (await response.json()) as { summary?: MemorySummaryPreview };
+      if (!data.summary) throw new Error("摘要生成结果为空");
+      setMemoryPreviews((current) => ({ ...current, [latestSessionId]: data.summary as MemorySummaryPreview }));
+      setIsMemoryPreviewOpen(true);
+      setMemoryActionStatus("摘要已生成，等待确认");
+    } catch (error) {
+      setMemoryActionStatus(error instanceof Error ? error.message : "摘要生成失败，可重试");
+    } finally {
+      setIsGeneratingMemorySummary(false);
+    }
+  }
+
+  async function confirmMemorySummary() {
+    if (!latestSessionId || !latestMemoryPreview) return;
+    setMemoryActionStatus("正在保存长期记忆...");
+    try {
+      const response = await fetch(`${API_BASE_URL}/memory/sessions/${encodeURIComponent(latestSessionId)}/summary/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          backend: memoryPrefs.backend,
+          summary: latestMemoryPreview,
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(typeof payload.detail === "string" ? payload.detail : `confirm failed: ${response.status}`);
+      }
+      setMemoryPreviews((current) => {
+        const next = { ...current };
+        delete next[latestSessionId];
+        return next;
+      });
+      setIsMemoryPreviewOpen(false);
+      setMemoryActionStatus("长期记忆已保存");
+      await refreshMemoryStatus();
+      await refreshConfirmedMemorySessions();
+      setConfirmedMemorySessions((current) => ({ ...current, [latestSessionId]: true }));
+    } catch (error) {
+      setMemoryActionStatus(error instanceof Error ? error.message : "保存失败，可重试");
+    }
+  }
+
+  function cancelMemorySummary() {
+    if (!latestSessionId) return;
+    setMemoryPreviews((current) => {
+      const next = { ...current };
+      delete next[latestSessionId];
+      return next;
+    });
+    setIsMemoryPreviewOpen(false);
+    setMemoryActionStatus("已取消保存");
   }
 
   async function sendQuestion() {
@@ -587,6 +854,10 @@ export default function App() {
           context: {},
           enable_swarm: true,
           session_id: activeSession.id,
+          memory: {
+            enabled: memoryPrefs.enabled,
+            backend: memoryPrefs.backend,
+          },
         }),
         signal: controller.signal,
       });
@@ -729,7 +1000,8 @@ export default function App() {
   }
 
   return (
-    <main className="workbench-shell">
+    <>
+      <main className="workbench-shell">
       <aside className="sidebar" aria-label="会话列表和服务状态">
         <div className="brand-block">
           <span>MedAgentCare</span>
@@ -774,17 +1046,57 @@ export default function App() {
             <div className={`health-dot ${health?.status === "ok" ? "ok" : "error"}`} />
             <div>
               <strong>{health?.status === "ok" ? "API 已连接" : "API 未连接"}</strong>
-              <span>{health?.service ?? healthError ?? API_BASE_URL}</span>
             </div>
           </div>
-          <div className="status-grid">
-            <div>
-              <span>LLM</span>
-              <strong>{formatBooleanStatus(health?.llm_configured)}</strong>
+          {healthError ? <p className="memory-note error">{healthError}</p> : null}
+          <div className="memory-panel">
+            <div className="memory-panel-head">
+              <div>
+                <span>长期记忆</span>
+                <strong>{memoryPrefs.enabled ? "开启" : "关闭"}</strong>
+              </div>
+              <label className="memory-toggle">
+                <input
+                  checked={memoryPrefs.enabled}
+                  type="checkbox"
+                  onChange={(event) =>
+                    setMemoryPrefs((current) => ({ ...current, enabled: event.target.checked }))
+                  }
+                />
+                <span />
+              </label>
             </div>
-            <div>
-              <span>Mem0</span>
-              <strong>{formatBooleanStatus(health?.mem0_configured)}</strong>
+            <div className="memory-setting-row">
+              <span>记忆库</span>
+              <div className="memory-backends" aria-label="记忆库">
+                {(["local", "mem0"] as MemoryBackend[]).map((backend) => (
+                  <button
+                    className={memoryPrefs.backend === backend ? "active" : ""}
+                    key={backend}
+                    type="button"
+                    onClick={() => setMemoryPrefs((current) => ({ ...current, backend }))}
+                  >
+                    {backend === "local" ? "本地" : "Mem0"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="memory-setting-row">
+              <span>状态</span>
+              <strong className={`memory-state ${currentMemoryStatus === "已保存" ? "saved" : ""}`}>
+                {currentMemoryStatus}
+              </strong>
+            </div>
+            {memoryError ? <p className="memory-note error">{memoryError}</p> : null}
+            {latestResponse?.memory?.raw_session_error ? (
+              <p className="memory-note error">{latestResponse.memory.raw_session_error}</p>
+            ) : null}
+            {memoryActionStatus ? <p className="memory-note">{memoryActionStatus}</p> : null}
+            <div className="memory-actions">
+              <button className="memory-save-button" type="button" onClick={openMemorySummaryDialog} disabled={!canOpenMemorySummary}>
+                <Database size={15} />
+                {isGeneratingMemorySummary ? "正在生成摘要..." : "将当前会话摘要并保存为长期记忆"}
+              </button>
             </div>
           </div>
         </section>
@@ -921,6 +1233,66 @@ export default function App() {
           </div>
         </footer>
       </section>
-    </main>
+      </main>
+
+      {isMemoryPreviewOpen && latestMemoryPreview ? (
+        <div className="memory-modal-backdrop" role="presentation">
+          <section className="memory-modal" role="dialog" aria-modal="true" aria-labelledby="memory-preview-title">
+            <header className="memory-modal-head">
+              <div>
+                <span>长期记忆预览</span>
+                <h3 id="memory-preview-title">{latestMemoryPreview.title}</h3>
+              </div>
+              <strong>保存到 {memoryPrefs.backend === "local" ? "本地" : "Mem0"}</strong>
+            </header>
+            <div className="memory-modal-body">
+              <div className="memory-preview-block">
+                <span>摘要</span>
+                <p>{latestMemoryPreview.summary}</p>
+              </div>
+              {latestMemoryPreview.timeline ? (
+                <div className="memory-preview-block">
+                  <span>时间线</span>
+                  <p>{latestMemoryPreview.timeline}</p>
+                </div>
+              ) : null}
+              {latestMemoryPreview.care_recommendation ? (
+                <div className="memory-preview-block">
+                  <span>建议</span>
+                  <p>{latestMemoryPreview.care_recommendation}</p>
+                </div>
+              ) : null}
+              {latestMemoryPreview.tags.length ? (
+                <div className="memory-tags">
+                  {latestMemoryPreview.tags.slice(0, 8).map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
+              ) : null}
+              {latestMemoryPreview.profile_candidates.length ? (
+                <div className="memory-profile-list">
+                  <span>可沉淀信息</span>
+                  {latestMemoryPreview.profile_candidates.slice(0, 4).map((item, index) => (
+                    <div key={`${item.type}-${item.value}-${index}`}>
+                      <strong>{item.value || item.type || "候选信息"}</strong>
+                      <small>{item.evidence || "无额外依据"}</small>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <footer className="memory-modal-actions">
+              <button type="button" className="secondary-action" onClick={cancelMemorySummary}>
+                取消保存
+              </button>
+              <button type="button" className="primary-action" onClick={confirmMemorySummary}>
+                <CheckCircle2 size={16} />
+                确认保存
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }

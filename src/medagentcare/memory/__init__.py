@@ -15,6 +15,17 @@ from .short_term import (
 from .long_term import (
     LongTermMemory
 )
+from .local_health_memory import (
+    LocalHealthMemory
+)
+from .conversation_store import (
+    ConversationStore
+)
+from .request_context import (
+    get_request_memory,
+    reset_request_memory,
+    set_request_memory,
+)
 
 # Harness Engineering: 熵管理
 from .entropy_manager import (
@@ -42,6 +53,11 @@ __all__ = [
     'ShortTermMemory',
     'ConversationHistory',
     'LongTermMemory',
+    'LocalHealthMemory',
+    'ConversationStore',
+    'get_request_memory',
+    'reset_request_memory',
+    'set_request_memory',
     # Harness Engineering: 熵管理
     'MemoryEntropyManager',
     # 本地持久化类

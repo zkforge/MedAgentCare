@@ -15,12 +15,14 @@ from typing import Awaitable, Callable, Dict, Any, Optional, List
 from loguru import logger
 
 from medagentcare.core import LLMClient
+from medagentcare.config import MEMORY_CONFIG
 from .shared_context import SharedContext
 from .lead_agent import LeadAgent
 from .events import Event, EventType
 from medagentcare.agents import ConsultationAgent, DiagnosticAgent, ResearchAgent, InterviewAgent
 from medagentcare.core.tracing import reset_trace_callback, set_trace_callback
-from medagentcare.memory import SessionSummaryManager, SessionSummary, ShortTermMemory, LongTermMemory
+from medagentcare.memory import SessionSummaryManager, SessionSummary, ShortTermMemory, LongTermMemory, LocalHealthMemory
+from medagentcare.memory.request_context import reset_request_memory, set_request_memory
 from medagentcare.response_sections import structure_medical_response
 from .interview_state import InterviewState, REQUIRED_DIMENSIONS, RED_FLAG_RULES
 
@@ -72,6 +74,11 @@ class SwarmCoordinator:
         self.session_manager = SessionSummaryManager()
         self.short_term_memory = ShortTermMemory(storage_type="memory")  # 或 "redis"
         self.long_term_memory = LongTermMemory()
+        self.local_health_memory = LocalHealthMemory(
+            MEMORY_CONFIG["memory_dir"],
+            user_id=MEMORY_CONFIG["user_id"],
+            max_sessions=MEMORY_CONFIG["max_sessions"],
+        )
 
         # 将短期记忆注入到所有 Worker Agent 的 Loop
         # 注意：LeadAgent 不继承 BaseAgent，没有 loop 属性，不需要注入
@@ -470,11 +477,99 @@ class SwarmCoordinator:
         }
         return mapping.get(agent_id)
 
+    @staticmethod
+    def _resolve_memory_request(memory: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Normalize request-level memory controls into an effective runtime state."""
+        requested_enabled = bool(memory and memory.get("enabled"))
+        backend = str((memory or {}).get("backend") or MEMORY_CONFIG["default_backend"] or "local")
+        if backend not in {"local", "mem0"}:
+            backend = "local"
+        effective_enabled = requested_enabled and bool(MEMORY_CONFIG.get("enabled"))
+        disabled_reason = None
+        if requested_enabled and not MEMORY_CONFIG.get("enabled"):
+            disabled_reason = "env_disabled"
+        elif not requested_enabled:
+            disabled_reason = "request_disabled"
+        return {
+            "requested_enabled": requested_enabled,
+            "effective_enabled": effective_enabled,
+            "backend": backend,
+            "disabled_reason": disabled_reason,
+            "user_id": MEMORY_CONFIG["user_id"],
+        }
+
+    async def _search_personal_memory(self, question: str, memory_state: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Search confirmed long-term memory before routing when the request opted in."""
+        if not memory_state["effective_enabled"]:
+            return []
+        backend = memory_state["backend"]
+        if backend == "mem0":
+            return self.long_term_memory.search_similar_sessions(
+                query=question,
+                limit=3,
+                user_id=MEMORY_CONFIG["user_id"],
+            )
+        return self.local_health_memory.search(question, limit=3)
+
+    async def _save_raw_memory(
+        self,
+        *,
+        session_id: str,
+        original_question: str,
+        result: Dict[str, Any],
+        mode: str,
+        memory_state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Save only the visible raw conversation when long-term memory is enabled."""
+        memory_result = {
+            **memory_state,
+            "raw_session_saved": False,
+            "raw_session_error": None,
+        }
+        if not memory_state["effective_enabled"]:
+            return memory_result
+        if result.get("status") == "need_more_info":
+            return memory_result
+
+        try:
+            self.local_health_memory.save_raw_session(
+                session_id=session_id,
+                question=original_question,
+                answer=str(result.get("answer", "")),
+                suggestions=result.get("suggestions") if isinstance(result.get("suggestions"), list) else [],
+                disclaimer=str(result.get("disclaimer", "")),
+                backend=memory_state["backend"],
+                metadata={
+                    "mode": mode,
+                    "swarm_enabled": result.get("swarm_enabled"),
+                    "total_time": result.get("total_time"),
+                },
+            )
+            memory_result["raw_session_saved"] = True
+            await self._emit_progress(
+                stage="memory_save",
+                title="保存原始对话",
+                detail="已保存本次可见问答，用于用户确认后生成长期记忆。",
+                status="completed",
+                metadata={"backend": memory_state["backend"], "session_id": session_id},
+            )
+        except Exception as exc:
+            memory_result["raw_session_error"] = str(exc)
+            await self._emit_progress(
+                stage="memory_save",
+                title="原始对话保存失败",
+                detail=str(exc),
+                status="warning",
+                metadata={"backend": memory_state["backend"], "session_id": session_id},
+            )
+        return memory_result
+
     async def process(
         self,
         question: str,
         context: Optional[Dict[str, Any]] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        memory: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         处理用户问题
@@ -490,13 +585,25 @@ class SwarmCoordinator:
         start_time = datetime.now()
         if session_id is None:
             session_id = f"{start_time.strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"
+        original_question = question
+        if context:
+            persisted_interview_state = context.pop("_persisted_interview_state", None)
+            if isinstance(persisted_interview_state, dict):
+                try:
+                    self.short_term_memory.set_interview_state(
+                        session_id,
+                        InterviewState.from_dict(persisted_interview_state),
+                    )
+                except Exception as exc:
+                    logger.warning(f"Failed to restore persisted interview state: {exc}")
+        memory_state = self._resolve_memory_request(memory)
 
         logger.info(f"Processing question (session={session_id}): {question[:50]}...")
         await self._emit_progress(
             stage="request_received",
             title="收到咨询请求",
             detail=f"会话 {session_id} 已开始处理。",
-            metadata={"session_id": session_id},
+            metadata={"session_id": session_id, "memory": memory_state},
         )
         may_fast_track = self._should_use_fast_consultation(question, context)
 
@@ -584,7 +691,8 @@ class SwarmCoordinator:
         await self._emit_progress(
             stage="memory_lookup",
             title="检索会话记忆",
-            detail="正在读取当前会话历史和相似历史案例。",
+            detail="正在读取当前会话历史和已启用的长期记忆。",
+            metadata={"memory": memory_state},
         )
 
         # 1. 检索短期记忆（当前会话历史）
@@ -593,15 +701,13 @@ class SwarmCoordinator:
             limit=10  # 最近5轮对话（10条消息）
         )
 
-        # 2. 检索长期记忆（相似历史会话）
-        if may_fast_track:
+        # 2. 检索长期记忆（仅请求显式开启时）
+        if may_fast_track or not memory_state["effective_enabled"]:
             similar_memories = []
-            logger.info("Fast consultation path skips long-term similar case lookup")
+            if may_fast_track:
+                logger.info("Fast consultation path skips long-term similar case lookup")
         else:
-            similar_memories = self.long_term_memory.search_similar_sessions(
-                query=question,
-                limit=3
-            )
+            similar_memories = await self._search_personal_memory(question, memory_state)
 
         # 3. 构建增强上下文
         enhanced_context = context or {}
@@ -618,8 +724,12 @@ class SwarmCoordinator:
         if similar_memories:
             enhanced_context["historical_cases"] = [
                 {
-                    "summary": mem["content"],
-                    "score": mem["score"]
+                    "session_id": mem.get("session_id") or mem.get("memory_id"),
+                    "title": mem.get("title"),
+                    "summary": mem.get("summary") or mem.get("content"),
+                    "tags": mem.get("tags", []),
+                    "timestamp": mem.get("timestamp"),
+                    "score": mem.get("score"),
                 }
                 for mem in similar_memories
             ]
@@ -628,11 +738,22 @@ class SwarmCoordinator:
         await self._emit_progress(
             stage="memory_lookup",
             title="记忆检索完成",
-            detail=f"短期历史 {len(recent_history)} 条，相似历史案例 {len(similar_memories)} 条。",
+            detail=f"短期历史 {len(recent_history)} 条，长期记忆命中 {len(similar_memories)} 条。",
             status="completed",
             metadata={
                 "recent_history_count": len(recent_history),
                 "similar_memory_count": len(similar_memories),
+                "memory": memory_state,
+                "hits": [
+                    {
+                        "session_id": mem.get("session_id") or mem.get("memory_id"),
+                        "title": mem.get("title"),
+                        "timestamp": mem.get("timestamp"),
+                        "tags": mem.get("tags", []),
+                        "score": mem.get("score"),
+                    }
+                    for mem in similar_memories
+                ],
             },
         )
 
@@ -689,34 +810,13 @@ class SwarmCoordinator:
             if 'suggestions' not in result:
                 result['suggestions'] = []
 
-            try:
-                self.long_term_memory.add_session_summary(
-                    session_id=session_id,
-                    question=question,
-                    answer=final_answer,
-                    metadata={
-                        "mode": "fast_consultation",
-                        "subtasks_count": 0,
-                        "total_time": (end_time - start_time).total_seconds(),
-                    }
-                )
-                logger.info(f"Saved to long-term memory (session={session_id}, mode=fast_consultation)")
-                await self._emit_progress(
-                    stage="memory_save",
-                    title="保存会话摘要",
-                    detail="已尝试写入长期记忆。",
-                    status="completed",
-                    metadata={"mode": "fast_consultation"},
-                )
-            except Exception as e:
-                logger.error(f"Failed to save to long-term memory: {e}")
-                await self._emit_progress(
-                    stage="memory_save",
-                    title="长期记忆保存失败",
-                    detail=str(e),
-                    status="warning",
-                    metadata={"mode": "fast_consultation"},
-                )
+            result["memory"] = await self._save_raw_memory(
+                session_id=session_id,
+                original_question=original_question,
+                result=result,
+                mode="fast_consultation",
+                memory_state=memory_state,
+            )
 
             await self._emit_progress(
                 stage="completed",
@@ -807,7 +907,13 @@ class SwarmCoordinator:
             )
             final_answer = result.get('answer', '')
 
-            # Swarm 模式已经在 _process_with_swarm 中保存了长期记忆，直接返回
+            result["memory"] = await self._save_raw_memory(
+                session_id=session_id,
+                original_question=original_question,
+                result=result,
+                mode=mode,
+                memory_state=memory_state,
+            )
             return result
 
         else:
@@ -836,40 +942,18 @@ class SwarmCoordinator:
                 'session_id': session_id
             })
 
-        # ===== 统一的记忆保存（非 Swarm 模式）=====
+        # ===== 统一保存 raw 对话（非 Swarm 模式）=====
         end_time = datetime.now()
 
         # 注意：短期记忆已经在 Agent Loop 中保存了，这里不需要重复保存
-
-        # 保存到长期记忆
-        try:
-            self.long_term_memory.add_session_summary(
-                session_id=session_id,
-                question=question,
-                answer=final_answer,
-                metadata={
-                    "mode": mode,
-                    "subtasks_count": len(subtasks),
-                    "total_time": (end_time - start_time).total_seconds(),
-                }
-            )
-            logger.info(f"Saved to long-term memory (session={session_id}, mode={mode})")
-            await self._emit_progress(
-                stage="memory_save",
-                title="保存会话摘要",
-                detail="已尝试写入长期记忆。",
-                status="completed",
-                metadata={"mode": mode},
-            )
-        except Exception as e:
-            logger.error(f"Failed to save to long-term memory: {e}")
-            await self._emit_progress(
-                stage="memory_save",
-                title="长期记忆保存失败",
-                detail=str(e),
-                status="warning",
-                metadata={"mode": mode},
-            )
+        result["total_time"] = (end_time - start_time).total_seconds()
+        result["memory"] = await self._save_raw_memory(
+            session_id=session_id,
+            original_question=original_question,
+            result=result,
+            mode=mode or "unknown",
+            memory_state=memory_state,
+        )
 
         await self._emit_progress(
             stage="completed",
@@ -1023,42 +1107,7 @@ class SwarmCoordinator:
                 status="warning",
             )
 
-        # 注意：短期记忆已经在 Agent Loop 中保存了，这里不需要重复保存
-        # Agent Loop 保存了完整的对话历史（user + assistant + tool messages）
-
-        # 保存到 Mem0 长期记忆
-        try:
-            # 保存会话总结
-            self.long_term_memory.add_session_summary(
-                session_id=session_id,
-                question=question,
-                answer=final_answer,
-                metadata={
-                    "mode": "swarm",
-                    "agents_count": len(shared_context.agent_contributions),
-                    "total_time": (end_time - start_time).total_seconds(),
-                    "timeout_occurred": timeout_occurred
-                }
-            )
-
-            logger.info(f"Saved to Mem0 long-term memory (session={session_id})")
-            await self._emit_progress(
-                stage="memory_save",
-                title="保存长期记忆",
-                detail="已尝试写入 Mem0 长期记忆。",
-                status="completed",
-                metadata={"session_id": session_id},
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to save to Mem0: {e}")
-            await self._emit_progress(
-                stage="memory_save",
-                title="长期记忆保存失败",
-                detail=str(e),
-                status="warning",
-                metadata={"session_id": session_id},
-            )
+        # 注意：短期记忆已经在 Agent Loop 中保存了；长期记忆改为用户确认后写入。
 
         # 发布 Swarm 完成事件
         shared_context.publish_event(Event(
@@ -1196,7 +1245,8 @@ async def process_with_swarm(
     context: Optional[Dict[str, Any]] = None,
     enable_swarm: bool = True,
     session_id: Optional[str] = None,
-    progress_callback: Optional[ProgressCallback] = None
+    progress_callback: Optional[ProgressCallback] = None,
+    memory: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     便捷函数：使用 Swarm 处理问题
@@ -1207,16 +1257,20 @@ async def process_with_swarm(
         enable_swarm: 是否启用 Swarm（False 则总是用单 Agent）
         session_id: 会话ID（如果提供，将使用该ID而不是生成新的）
         progress_callback: 可选进度事件回调，用于 SSE 输出关键运行状态
+        memory: 请求级长期记忆开关和 backend 选择
 
     Returns:
         处理结果
     """
     trace_token = set_trace_callback(progress_callback)
+    memory_state = SwarmCoordinator._resolve_memory_request(memory)
+    memory_token = set_request_memory(memory_state)
     try:
         coordinator = SwarmCoordinator(
             enable_swarm=enable_swarm,
             progress_callback=progress_callback,
         )
-        return await coordinator.process(question, context, session_id=session_id)
+        return await coordinator.process(question, context, session_id=session_id, memory=memory)
     finally:
+        reset_request_memory(memory_token)
         reset_trace_callback(trace_token)

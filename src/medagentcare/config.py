@@ -45,6 +45,23 @@ def _get_float_env(name: str, default: float) -> float:
     return float(value)
 
 
+def _get_bool_env(name: str, default: bool) -> bool:
+    value = _get_env(name)
+    if not value:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _default_memory_dir() -> str:
+    project_root = Path(__file__).resolve().parents[2]
+    return str(project_root / ".medagentcare" / "memory")
+
+
+def _default_sessions_dir() -> str:
+    project_root = Path(__file__).resolve().parents[2]
+    return str(project_root / ".medagentcare" / "sessions")
+
+
 # LLM API config (OpenAI-compatible endpoint)
 LLM_CONFIG = {
     "api_key": _get_env("LLM_API_KEY") or _get_env("OPENAI_API_KEY"),
@@ -57,4 +74,22 @@ LLM_CONFIG = {
 # Mem0 API config (Long-term memory)
 MEM0_CONFIG = {
     "api_key": _get_env("MEM0_API_KEY"),
+}
+
+# Personal health memory config. Env enables the backend capability; each
+# request still has to opt in through the UI/API memory flag.
+MEMORY_CONFIG = {
+    "enabled": _get_bool_env("MEDAGENTCARE_MEMORY_ENABLED", True),
+    "default_backend": _get_env("MEDAGENTCARE_MEMORY_BACKEND", "local") or "local",
+    "memory_dir": _get_env("MEDAGENTCARE_MEMORY_DIR", _default_memory_dir()),
+    "max_sessions": _get_int_env("MEDAGENTCARE_MEMORY_MAX_SESSIONS", 100),
+    "user_id": "local_default",
+}
+
+# Local conversation store used by the frontend recent-session list and by the
+# backend to restore recent visible context across API restarts.
+SESSION_CONFIG = {
+    "sessions_dir": _get_env("MEDAGENTCARE_SESSIONS_DIR", _default_sessions_dir()),
+    "max_sessions": _get_int_env("MEDAGENTCARE_SESSION_MAX_SESSIONS", 100),
+    "user_id": "local_default",
 }
