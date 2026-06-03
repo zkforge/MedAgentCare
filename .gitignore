@@ -67,3 +67,5 @@ agent_identities/*.md
 
 # 本地生成的向量库
 **/knowledge/data/*.db
+
+.DS_Store
