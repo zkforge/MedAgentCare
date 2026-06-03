@@ -222,6 +222,140 @@ def _sse_event(event: str, data: Dict[str, Any]) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
+def _safe_reasoning_detail(payload: Dict[str, Any], fallback: str = "") -> str:
+    """Return a short UI-safe detail without leaking raw errors or identifiers."""
+    status = str(payload.get("status") or "")
+    if status == "error":
+        return "该步骤出现异常，系统将停止本轮处理或进入降级路径。"
+    detail = str(payload.get("detail") or "").strip()
+    return detail if detail else fallback
+
+
+def _reasoning_stream_text(payload: Dict[str, Any]) -> str:
+    """Convert selected progress events into a public reasoning trace sentence."""
+    stage = str(payload.get("stage") or "")
+    title = str(payload.get("title") or payload.get("stage") or "").strip()
+    status = str(payload.get("status") or "")
+
+    if stage in {"heartbeat", "summary", "memory_save", "completed"}:
+        return ""
+
+    if status == "error":
+        return f"{title or '运行步骤'}出现异常，系统将停止本轮处理或进入降级路径。\n"
+
+    if stage == "request_received":
+        return "收到咨询请求，开始梳理问题和上下文。\n"
+
+    if stage == "memory_lookup":
+        if "完成" in title:
+            return "已完成会话历史和长期记忆检索，接下来结合上下文判断处理路径。\n"
+        return "正在读取会话历史和已启用的长期记忆，避免忽略既往上下文。\n"
+
+    if stage == "memory_operation":
+        if "跳过" in title:
+            return ""
+        if "检索" in title and "完成" in title:
+            return "已完成长期记忆检索，准备把相关个人背景纳入本轮判断。\n"
+        if "检索" in title:
+            return "正在检索长期记忆，检查是否存在与本次咨询相关的历史信息。\n"
+        return ""
+
+    if stage == "lead_assessment":
+        if "任务拆分" in title:
+            return _safe_reasoning_detail(payload, "已完成任务拆分，准备选择合适的 Agent 协作路径。") + "\n"
+        return "正在判断问题复杂度、医疗风险边界，以及是否需要多 Agent 协作。\n"
+
+    if stage == "routing":
+        if "快速" in title:
+            return "判断为常见咨询且未发现明确急症信号，进入快速通用咨询路径。\n"
+        if "Swarm" in title:
+            return "问题需要多角度分析，进入 Swarm 协作路径并准备并行执行子任务。\n"
+        if "单 Agent" in title:
+            return _safe_reasoning_detail(payload, "问题已路由到单个专业 Agent 处理。") + "\n"
+        if "通用咨询" in title:
+            return "问题适合由通用健康咨询 Agent 直接处理。\n"
+        if "智能问诊" in title:
+            return "检测到症状描述，开始系统性采集关键信息。\n"
+        if "继续问诊" in title:
+            return _safe_reasoning_detail(payload, "继续上一轮问诊，补齐尚未覆盖的信息。") + "\n"
+        if "问诊完成" in title:
+            return "问诊信息已基本充分，准备转入后续分析。\n"
+        return _safe_reasoning_detail(payload, "已完成路由判断，准备进入对应处理路径。") + "\n"
+
+    if stage == "llm_call":
+        if "完成" in title:
+            return _safe_reasoning_detail(payload, "模型调用完成，准备解析结果。") + "\n"
+        if "失败" in title:
+            return "模型调用失败，系统将停止本轮处理或进入降级路径。\n"
+        if "工具决策" in title:
+            return "正在请求模型判断是否需要调用医学 Skill 或其他工具。\n"
+        return "正在请求模型生成可展示的医疗咨询内容。\n"
+
+    if stage == "skill_call":
+        skill_name = title.split("：", 1)[-1] if "：" in title else ""
+        if "完成" in title:
+            return f"医学 Skill {skill_name or '调用'} 已完成，准备整合其返回结果。\n"
+        if "失败" in title:
+            return f"医学 Skill {skill_name or '调用'} 失败，系统将按降级策略继续或返回错误摘要。\n"
+        return f"开始调用医学 Skill {skill_name or ''}，补充风险评估或知识检索依据。\n"
+
+    if stage == "knowledge_search":
+        if "完成" in title:
+            return _safe_reasoning_detail(payload, "本地医学知识库检索完成，准备整合证据。") + "\n"
+        if "失败" in title:
+            return "本地医学知识库检索失败，系统将避免展示内部错误并继续降级处理。\n"
+        return "正在检索本地医学知识库，补充指南、疾病分类或生活方式建议依据。\n"
+
+    if stage == "web_search":
+        if "跳过" in title:
+            return "当前网络搜索不可用，系统将优先使用本地知识和已获取信息。\n"
+        if "完成" in title:
+            return _safe_reasoning_detail(payload, "外部资料检索完成，准备进行证据综合。") + "\n"
+        if "失败" in title:
+            return "外部资料检索失败，系统将避免展示内部错误并继续降级处理。\n"
+        return "正在检索外部医学资料，用于补充最新指南或证据线索。\n"
+
+    if stage == "subtask_created":
+        return _safe_reasoning_detail(payload, "已创建协作子任务，准备分配给对应 Agent。") + "\n"
+
+    if stage == "worker_execution":
+        if "超时" in title:
+            return "部分 Agent 执行超时，系统将基于已完成结果继续汇总。\n"
+        return "正在并行执行已分配的 Agent 子任务。\n"
+
+    if stage == "subtask_started":
+        return _safe_reasoning_detail(payload, "Worker Agent 已开始处理子任务。") + "\n"
+
+    if stage == "subtask_completed":
+        return _safe_reasoning_detail(payload, "Worker Agent 已完成子任务，结果已写入共享上下文。") + "\n"
+
+    if stage == "subtask_failed":
+        return "某个 Worker Agent 子任务失败，系统将基于剩余结果继续或返回降级说明。\n"
+
+    if stage == "synthesis":
+        if "完成" in title:
+            return "多 Agent 或工具结果已完成汇总，准备输出最终咨询内容。\n"
+        return "正在整合各 Agent、Skill 和知识检索结果，生成最终建议。\n"
+
+    return ""
+
+
+async def _stream_text_deltas(channel: str, text: str) -> AsyncIterator[str]:
+    """Emit one visible character per SSE frame for typewriter rendering."""
+    for char in text:
+        yield _sse_event("stream_delta", {"channel": channel, "delta": char})
+        await asyncio.sleep(0)
+
+
+async def _stream_progress_payload(payload: Dict[str, Any]) -> AsyncIterator[str]:
+    """Emit the structured progress event plus its transcript deltas."""
+    yield _sse_event("progress", payload)
+    text = _reasoning_stream_text(payload)
+    if text:
+        async for chunk in _stream_text_deltas("reasoning", text):
+            yield chunk
+
+
 def _drain_progress_queue(progress_queue: asyncio.Queue[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Collect queued progress records without blocking the response."""
     records = []
@@ -304,9 +438,11 @@ async def _stream_chat_events(
 
             if done:
                 if progress_waiter is not None and progress_waiter in done:
-                    yield _sse_event("progress", progress_waiter.result())
+                    async for chunk in _stream_progress_payload(progress_waiter.result()):
+                        yield chunk
                     for payload in _drain_progress_queue(progress_queue):
-                        yield _sse_event("progress", payload)
+                        async for chunk in _stream_progress_payload(payload):
+                            yield chunk
 
                     if task.done():
                         progress_waiter = None
@@ -324,7 +460,8 @@ async def _stream_chat_events(
             progress_waiter.cancel()
 
         for payload in _drain_progress_queue(progress_queue):
-            yield _sse_event("progress", payload)
+            async for chunk in _stream_progress_payload(payload):
+                yield chunk
 
         result = await task
         if result.get("session_id"):
@@ -336,6 +473,8 @@ async def _stream_chat_events(
 
         # 问诊模式：根据 status 发送不同的事件类型
         if result.get("status") == "need_more_info":
+            async for chunk in _stream_text_deltas("answer", str(result.get("answer", ""))):
+                yield chunk
             # 追问事件：前端应显示追问并等待用户输入
             yield _sse_event(
                 "interview_question",
@@ -350,6 +489,8 @@ async def _stream_chat_events(
             )
         else:
             # 正常结果（含问诊完成后转诊断的结果）
+            async for chunk in _stream_text_deltas("answer", str(result.get("answer", ""))):
+                yield chunk
             if result.get("status") == "interview_complete":
                 yield _sse_event(
                     "interview_complete",
@@ -365,8 +506,22 @@ async def _stream_chat_events(
         task.cancel()
         raise
     except ValueError as exc:
+        async for chunk in _stream_text_deltas(
+            "reasoning",
+            "执行过程中发现请求参数不符合处理要求，已停止本轮咨询并准备返回错误摘要。\n",
+        ):
+            yield chunk
+        async for chunk in _stream_text_deltas("answer", "本轮咨询请求参数有误，请调整后重试。"):
+            yield chunk
         yield _sse_event("error", {"status_code": 400, "detail": str(exc)})
     except Exception as exc:
+        async for chunk in _stream_text_deltas(
+            "reasoning",
+            "执行过程中检测到后端异常，已停止本轮咨询并准备返回错误摘要。\n",
+        ):
+            yield chunk
+        async for chunk in _stream_text_deltas("answer", "本轮咨询处理失败，请稍后重试或检查后端服务状态。"):
+            yield chunk
         yield _sse_event(
             "error",
             {

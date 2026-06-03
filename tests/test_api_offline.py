@@ -111,11 +111,17 @@ class ApiOfflineTests(unittest.TestCase):
 
         self.assertIn("event: start", body)
         self.assertIn("event: progress", body)
+        self.assertIn("event: stream_delta", body)
         self.assertIn("event: heartbeat", body)
         self.assertIn("event: result", body)
         self.assertIn("event: done", body)
         self.assertIn("分析问题复杂度", body)
         self.assertIn("结果汇总完成", body)
+        self.assertIn('"channel":"reasoning"', body)
+        self.assertIn('"channel":"answer"', body)
+        self.assertIn('"delta":"正"', body)
+        self.assertIn('"delta":"o"', body)
+        self.assertIn('"delta":"k"', body)
         self.assertFalse(captured["enable_swarm"])
         self.assertEqual(captured["session_id"], "stream-test")
 

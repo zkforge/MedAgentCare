@@ -4,19 +4,17 @@ import {
   Activity,
   AlertTriangle,
   ArrowUp,
-  Brain,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
-  CircleAlert,
-  CircleDotDashed,
   Database,
+  Brain,
   GitBranch,
   ListChecks,
   Loader2,
   MessageSquare,
-  Network,
   Plus,
   Stethoscope,
-  Timer,
   Trash2,
 } from "lucide-react";
 
@@ -107,6 +105,12 @@ type RuntimeProgressEvent = {
   metadata?: Record<string, unknown>;
 };
 
+type StreamChannel = "reasoning" | "answer";
+
+type StreamTranscript = {
+  reasoning: string;
+};
+
 type StreamEvent = {
   event: string;
   data: unknown;
@@ -120,6 +124,8 @@ type ChatMessage = {
   isStreaming?: boolean;
   progressEvents?: RuntimeProgressEvent[];
   progressStatus?: string;
+  streamTranscript?: StreamTranscript;
+  reasoningExpanded?: boolean;
   response?: ChatResponse;
 };
 
@@ -133,6 +139,7 @@ type ChatSession = {
 
 const ACTIVE_SESSION_KEY = "medagentcare.activeSession.v1";
 const MEMORY_PREF_KEY = "medagentcare.memory.preferences.v1";
+const REASONING_CACHE_KEY = "medagentcare.reasoning.cache.v1";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 const EXAMPLE_QUESTIONS = [
   "35岁，头痛发热两天，体温38.2度，有高血压史，需要注意什么？",
@@ -143,6 +150,15 @@ const EXAMPLE_QUESTIONS = [
 const INLINE_MARKDOWN_COMPONENTS = {
   p: ({ children }: { children?: ReactNode }) => <>{children}</>,
 };
+
+type ReasoningCacheEntry = {
+  question: string;
+  answer: string;
+  reasoning: string;
+  updatedAt: string;
+};
+
+type ReasoningCache = Record<string, ReasoningCacheEntry[]>;
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -179,6 +195,63 @@ function loadActiveSessionId() {
   } catch {
     return "";
   }
+}
+
+function loadReasoningCache(): ReasoningCache {
+  try {
+    const raw = window.localStorage?.getItem(REASONING_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as ReasoningCache;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveReasoningCacheEntry(sessionId: string, entry: ReasoningCacheEntry) {
+  try {
+    const cache = loadReasoningCache();
+    const entries = (cache[sessionId] ?? []).filter(
+      (item) => !(item.question === entry.question && item.answer === entry.answer),
+    );
+    cache[sessionId] = [...entries, entry].slice(-40);
+    window.localStorage?.setItem(REASONING_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // 推理过程缓存只用于前端展示，失败不影响咨询流程。
+  }
+}
+
+function deleteReasoningCacheSession(sessionId: string) {
+  try {
+    const cache = loadReasoningCache();
+    delete cache[sessionId];
+    window.localStorage?.setItem(REASONING_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // 缓存清理失败不影响后端会话删除。
+  }
+}
+
+function enrichSessionWithReasoning(session: ChatSession): ChatSession {
+  const entries = loadReasoningCache()[session.id] ?? [];
+  if (entries.length === 0) return session;
+
+  return {
+    ...session,
+    messages: session.messages.map((message, index) => {
+      if (message.role !== "assistant" || message.streamTranscript?.reasoning) return message;
+      const previousUser = [...session.messages.slice(0, index)].reverse().find((item) => item.role === "user");
+      const answer = message.content || message.response?.answer || "";
+      const cached = [...entries]
+        .reverse()
+        .find((entry) => entry.question === previousUser?.content && entry.answer === answer);
+      if (!cached?.reasoning) return message;
+      return {
+        ...message,
+        streamTranscript: { reasoning: cached.reasoning },
+        reasoningExpanded: message.reasoningExpanded ?? false,
+      };
+    }),
+  };
 }
 
 function formatDate(value: string) {
@@ -225,6 +298,30 @@ function answerContentOnly(content: string) {
   return output.join("\n").trim();
 }
 
+function formatProcessingDuration(seconds?: number) {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return "";
+  const totalSeconds = Math.max(1, Math.round(seconds));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+}
+
+function progressElapsedSeconds(events?: RuntimeProgressEvent[], totalTimeSeconds?: number) {
+  if (typeof totalTimeSeconds === "number" && Number.isFinite(totalTimeSeconds)) {
+    return totalTimeSeconds;
+  }
+  if (!events?.length) return undefined;
+
+  const timestamps = events
+    .map((event) => Date.parse(event.timestamp ?? ""))
+    .filter((timestamp) => Number.isFinite(timestamp));
+  if (timestamps.length < 2) return undefined;
+
+  return (timestamps[timestamps.length - 1] - timestamps[0]) / 1000;
+}
+
 function parseSseFrame(frame: string): StreamEvent | null {
   const lines = frame.split(/\r?\n/);
   let event = "message";
@@ -265,220 +362,75 @@ function extractSseEvents(buffer: string) {
   return { events, remaining: cursor };
 }
 
-function formatProgressTime(value?: string) {
-  if (!value) return "--:--:--";
-  return new Date(value).toLocaleTimeString("zh-CN", { hour12: false });
-}
-
-function formatDuration(seconds?: number) {
-  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return null;
-  if (seconds < 60) {
-    return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} 秒`;
-  }
-
-  const totalSeconds = Math.round(seconds);
-  const minutes = Math.floor(totalSeconds / 60);
-  const remainingSeconds = totalSeconds % 60;
-  return remainingSeconds > 0 ? `${minutes} 分 ${remainingSeconds} 秒` : `${minutes} 分`;
-}
-
-function progressElapsedSeconds(events: RuntimeProgressEvent[], totalTimeSeconds?: number) {
-  if (typeof totalTimeSeconds === "number" && Number.isFinite(totalTimeSeconds)) {
-    return totalTimeSeconds;
-  }
-
-  const timestamps = events
-    .map((event) => Date.parse(event.timestamp ?? ""))
-    .filter((timestamp) => Number.isFinite(timestamp));
-  if (timestamps.length < 2) return undefined;
-
-  return (timestamps[timestamps.length - 1] - timestamps[0]) / 1000;
-}
-
-function progressStatusLabel(status?: string) {
-  if (status === "completed") return "完成";
-  if (status === "warning") return "注意";
-  if (status === "error") return "失败";
-  return "进行中";
-}
-
-function progressStageLabel(stage?: string) {
-  const labels: Record<string, string> = {
-    request_received: "请求",
-    memory_lookup: "记忆",
-    memory_operation: "记忆调用",
-    lead_assessment: "分析",
-    routing: "路由",
-    subtask_created: "任务",
-    worker_execution: "执行",
-    subtask_started: "Agent",
-    subtask_completed: "Agent",
-    subtask_failed: "Agent",
-    llm_call: "LLM",
-    skill_call: "Skill",
-    knowledge_search: "Milvus",
-    web_search: "Web",
-    synthesis: "汇总",
-    summary: "摘要",
-    memory_save: "保存",
-    completed: "完成",
-  };
-  return stage ? labels[stage] ?? "事件" : "事件";
-}
-
-function progressIcon(stage?: string, status?: string) {
-  if (status === "completed") return <CheckCircle2 size={15} />;
-  if (status === "warning" || status === "error") return <CircleAlert size={15} />;
-  if (status === "running") return <Loader2 size={15} className="spin" />;
-  if (stage === "memory_lookup" || stage === "memory_save") return <Database size={15} />;
-  if (stage === "memory_operation" || stage === "knowledge_search") return <Database size={15} />;
-  if (stage === "llm_call") return <Brain size={15} />;
-  if (stage === "skill_call") return <ListChecks size={15} />;
-  if (stage === "web_search") return <Network size={15} />;
-  if (stage === "lead_assessment") return <Brain size={15} />;
-  if (stage === "routing") return <GitBranch size={15} />;
-  if (stage === "subtask_created") return <ListChecks size={15} />;
-  if (stage === "worker_execution" || stage?.startsWith("subtask_")) return <Network size={15} />;
-  return <CircleDotDashed size={15} />;
-}
-
-function deriveProgressStatus(
-  event: RuntimeProgressEvent,
-  index: number,
-  total: number,
-  isStreaming?: boolean,
-) {
-  if (event.status === "completed" || event.status === "warning" || event.status === "error") {
-    return event.status;
-  }
-  if (!isStreaming || index < total - 1) {
-    return "completed";
-  }
-  return "running";
-}
-
-function metadataText(metadata: Record<string, unknown> | undefined, key: string) {
-  const value = metadata?.[key];
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item)).join(", ");
-  }
-  return "";
-}
-
-function traceDurationMs(event: RuntimeProgressEvent) {
-  const value = event.metadata?.duration_ms;
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function progressStepClass(event: RuntimeProgressEvent & { displayStatus: string }) {
-  const classes = ["progress-step", event.displayStatus];
-  if (event.metadata?.trace) classes.push("trace-step");
-
-  const durationMs = traceDurationMs(event);
-  if (durationMs !== null && durationMs >= 30000) classes.push("very-slow");
-  else if (durationMs !== null && durationMs >= 10000) classes.push("slow");
-
-  return classes.join(" ");
-}
-
-function traceChips(event: RuntimeProgressEvent) {
-  const metadata = event.metadata;
-  if (!metadata?.trace) return [];
-
-  const chips = [
-    metadataText(metadata, "operation"),
-    metadataText(metadata, "model"),
-    metadataText(metadata, "skill"),
-    metadataText(metadata, "provider"),
-    metadataText(metadata, "tool_calls"),
-  ].filter(Boolean);
-
-  const durationMs = traceDurationMs(event);
-  if (durationMs !== null) chips.unshift(`${(durationMs / 1000).toFixed(1)}s`);
-
-  return chips.slice(0, 5);
-}
-
-function ProgressTimeline({
-  events,
-  status,
-  isStreaming,
-  totalTimeSeconds,
-}: {
-  events: RuntimeProgressEvent[];
-  status?: string;
-  isStreaming?: boolean;
-  totalTimeSeconds?: number;
-}) {
-  const latestEvent = events.length ? events[events.length - 1] : undefined;
-  const displayEvents = events.map((event, index) => ({
-    ...event,
-    displayStatus: deriveProgressStatus(event, index, events.length, isStreaming),
-  }));
-  const completedCount = displayEvents.filter((event) => event.displayStatus === "completed").length;
-  const traceCount = displayEvents.filter((event) => event.metadata?.trace).length;
-  const elapsedText = formatDuration(progressElapsedSeconds(events, totalTimeSeconds));
-  const summaryText = latestEvent?.title ?? status ?? "等待后端返回运行进度";
-  const summaryDetail = latestEvent?.detail ?? "SSE 连接建立后会显示后端关键执行事件。";
-  const completedSummary = [
-    `${events.length} 个事件`,
-    traceCount ? `${traceCount} 个调用` : null,
-    `${completedCount} 个完成`,
-    elapsedText ? `耗时 ${elapsedText}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
-  return (
-    <details className="progress-panel" open={isStreaming}>
-      <summary className="progress-summary">
-        <span className={`progress-summary-icon ${isStreaming ? "active" : "done"}`}>
-          {isStreaming ? <Loader2 size={16} className="spin" /> : <CheckCircle2 size={16} />}
-        </span>
-        <span>
-          <strong>{isStreaming ? summaryText : "执行轨迹"}</strong>
-          <small>{isStreaming ? summaryDetail : completedSummary}</small>
-        </span>
-      </summary>
-      <div className="progress-timeline">
-        {events.length === 0 ? (
-          <div className="progress-empty">
-            <Timer size={16} />
-            <span>{status ?? "等待后端返回运行进度"}</span>
-          </div>
-        ) : (
-          displayEvents.map((event, index) => (
-            <div className={progressStepClass(event)} key={`${event.stage}-${index}`}>
-              <div className="progress-step-marker">{progressIcon(event.stage, event.displayStatus)}</div>
-              <div className="progress-step-body">
-                <div className="progress-step-heading">
-                  <span>{progressStageLabel(event.stage)}</span>
-                  <time>{formatProgressTime(event.timestamp)}</time>
-                  <em>{progressStatusLabel(event.displayStatus)}</em>
-                </div>
-                <strong>{event.title ?? event.stage ?? "运行事件"}</strong>
-                {event.detail ? <p>{event.detail}</p> : null}
-                {traceChips(event).length ? (
-                  <div className="trace-chip-row">
-                    {traceChips(event).map((chip) => (
-                      <span key={chip}>{chip}</span>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </details>
-  );
-}
-
 function InlineMarkdown({ children }: { children: string }) {
   return <ReactMarkdown components={INLINE_MARKDOWN_COMPONENTS}>{children}</ReactMarkdown>;
+}
+
+function reasoningLineIcon(text: string) {
+  if (/收到|咨询请求/.test(text)) return <MessageSquare size={14} />;
+  if (/记忆|会话历史|长期/.test(text)) return <Database size={14} />;
+  if (/模型|LLM|finish_reason|tool_calls|stop|字符|用时/.test(text)) return <Brain size={14} />;
+  if (/路由|Agent|LeadAgent|子任务|协作|Swarm|consultation_agent/.test(text)) return <GitBranch size={14} />;
+  if (/Skill|assess_|search_|调用/.test(text)) return <ListChecks size={14} />;
+  if (/完成|已处理|返回|生成/.test(text)) return <CheckCircle2 size={14} />;
+  return <Stethoscope size={14} />;
+}
+
+function ReasoningBlock({
+  message,
+  onToggle,
+}: {
+  message: ChatMessage;
+  onToggle: () => void;
+}) {
+  const text = message.streamTranscript?.reasoning ?? "";
+  if (!text.trim()) return null;
+  const lines = text.split(/\r?\n/).filter((line, index, allLines) => {
+    if (line) return true;
+    return message.isStreaming && index === allLines.length - 1;
+  });
+
+  const expanded = message.isStreaming || message.reasoningExpanded === true;
+  const elapsed = formatProcessingDuration(
+    progressElapsedSeconds(message.progressEvents ?? message.response?.progress_events, message.response?.total_time),
+  );
+  const collapsedLabel = `已处理${elapsed ? ` ${elapsed}` : ""}`;
+
+  return (
+    <section className={`reasoning-block ${expanded ? "expanded" : "collapsed"}`}>
+      <button
+        className="reasoning-toggle"
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        <span>
+          {message.isStreaming ? <Loader2 size={15} className="spin" /> : <CheckCircle2 size={15} />}
+          {message.isStreaming ? "推理中" : collapsedLabel}
+        </span>
+        {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+      </button>
+      {expanded ? (
+        <div className="reasoning-content">
+          {lines.map((line, index) => {
+            const isLastLine = index === lines.length - 1;
+
+            return (
+              <div className="reasoning-line" key={`${line}-${index}`}>
+                <span className="reasoning-line-icon" aria-hidden="true">
+                  {line ? reasoningLineIcon(line) : <Loader2 size={14} className="spin" />}
+                </span>
+                <span>
+                  {line}
+                  {message.isStreaming && isLastLine ? <b aria-hidden="true" /> : null}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 export default function App() {
@@ -624,7 +576,7 @@ export default function App() {
       const response = await fetch(`${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}`, { signal });
       if (!response.ok) throw new Error(`session load failed: ${response.status}`);
       const session = (await response.json()) as ChatSession;
-      updateSession(session);
+      updateSession(enrichSessionWithReasoning(session));
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
       setHealthError(error instanceof Error ? error.message : "会话读取失败");
@@ -656,6 +608,25 @@ export default function App() {
     );
   }
 
+  function toggleReasoning(sessionId: string, messageId: string) {
+    const updatedAt = new Date().toISOString();
+    setSessions((current) =>
+      current.map((session) =>
+        session.id === sessionId
+          ? {
+              ...session,
+              updatedAt,
+              messages: session.messages.map((message) =>
+                message.id === messageId
+                  ? { ...message, reasoningExpanded: !(message.reasoningExpanded ?? false) }
+                  : message,
+              ),
+            }
+          : session,
+      ),
+    );
+  }
+
   async function startSession() {
     try {
       const session = await createBackendSession();
@@ -673,6 +644,7 @@ export default function App() {
         method: "DELETE",
       });
       if (!response.ok) throw new Error(`session delete failed: ${response.status}`);
+      deleteReasoningCacheSession(sessionId);
       setMemoryPreviews((current) => {
         const next = { ...current };
         delete next[sessionId];
@@ -829,6 +801,8 @@ export default function App() {
       isStreaming: true,
       progressEvents: [],
       progressStatus: "正在建立 SSE 连接...",
+      streamTranscript: { reasoning: "" },
+      reasoningExpanded: true,
     };
 
     const optimisticSession: ChatSession = {
@@ -844,6 +818,56 @@ export default function App() {
 
     const controller = new AbortController();
     const progressEvents: RuntimeProgressEvent[] = [];
+    let streamTranscript: StreamTranscript = { reasoning: "" };
+    let streamedAnswer = "";
+    let reasoningBuffer = "";
+    let answerBuffer = "";
+
+    const takeBufferedChars = (length: number) => {
+      if (length > 600) return 64;
+      if (length > 240) return 24;
+      if (length > 80) return 8;
+      return 1;
+    };
+
+    const flushStreamBuffers = (force = false) => {
+      const patch: Partial<ChatMessage> = {};
+
+      if (reasoningBuffer) {
+        const count = force ? reasoningBuffer.length : Math.min(reasoningBuffer.length, takeBufferedChars(reasoningBuffer.length));
+        streamTranscript = {
+          reasoning: streamTranscript.reasoning + reasoningBuffer.slice(0, count),
+        };
+        reasoningBuffer = reasoningBuffer.slice(count);
+        patch.streamTranscript = streamTranscript;
+        patch.reasoningExpanded = true;
+        patch.progressStatus = "正在生成推理过程...";
+      }
+
+      if (answerBuffer) {
+        const count = force ? answerBuffer.length : Math.min(answerBuffer.length, takeBufferedChars(answerBuffer.length));
+        streamedAnswer += answerBuffer.slice(0, count);
+        answerBuffer = answerBuffer.slice(count);
+        patch.content = streamedAnswer;
+        patch.progressStatus = "正在输出最终回答...";
+      }
+
+      if (Object.keys(patch).length > 0) {
+        patchMessage(activeSession.id, assistantMessageId, patch);
+      }
+    };
+
+    const persistReasoning = (answer: string) => {
+      if (!streamTranscript.reasoning.trim() || !answer.trim()) return;
+      saveReasoningCacheEntry(activeSession.id, {
+        question: submittedQuestion,
+        answer,
+        reasoning: streamTranscript.reasoning,
+        updatedAt: new Date().toISOString(),
+      });
+    };
+
+    const typewriterTimer = window.setInterval(() => flushStreamBuffers(false), 16);
 
     try {
       const response = await fetch(`${API_BASE_URL}/chat/stream`, {
@@ -891,26 +915,33 @@ export default function App() {
 
           if (streamEvent.event === "progress" && typeof streamEvent.data === "object" && streamEvent.data) {
             progressEvents.push(streamEvent.data as RuntimeProgressEvent);
-            const visibleEvents = progressEvents.slice(-80);
-            patchMessage(activeSession.id, assistantMessageId, {
-              progressEvents: visibleEvents,
-              progressStatus: "正在生成最终回答...",
-              response: { progress_events: visibleEvents },
-            });
+            continue;
+          }
+
+          if (streamEvent.event === "stream_delta" && typeof streamEvent.data === "object" && streamEvent.data) {
+            const data = streamEvent.data as { channel?: unknown; delta?: unknown };
+            const channel = data.channel as StreamChannel;
+            const delta = typeof data.delta === "string" ? data.delta : "";
+            if (!delta || !["reasoning", "answer"].includes(channel)) continue;
+
+            if (channel === "answer") {
+              answerBuffer += delta;
+              continue;
+            }
+
+            reasoningBuffer += delta;
             continue;
           }
 
           if (streamEvent.event === "heartbeat") {
-            const visibleEvents = progressEvents.slice(-80);
             patchMessage(activeSession.id, assistantMessageId, {
-              progressEvents: visibleEvents,
               progressStatus: "后端仍在执行，请等待...",
-              response: { progress_events: visibleEvents },
             });
             continue;
           }
 
           if (streamEvent.event === "interview_question" && typeof streamEvent.data === "object" && streamEvent.data) {
+            flushStreamBuffers(true);
             const data = streamEvent.data as Record<string, unknown>;
             const questionText = (data.question as string) || "";
             const round = data.interview_round as number;
@@ -919,12 +950,16 @@ export default function App() {
             const remaining = (data.remaining_dimensions as string[]) || [];
 
             const visibleEvents = progressEvents.slice(-80);
+            const finalQuestionText = streamedAnswer || questionText;
+            persistReasoning(questionText || finalQuestionText);
             patchMessage(activeSession.id, assistantMessageId, {
-              content: questionText,
+              content: finalQuestionText,
               createdAt: new Date().toISOString(),
               isStreaming: false,
               progressEvents: visibleEvents,
               progressStatus: `第 ${round}/${maxRounds} 轮问诊 · 已覆盖: ${covered.join("、") || "无"} · 待追问: ${remaining.join("、") || "无"}`,
+              streamTranscript,
+              reasoningExpanded: false,
               response: {
                 status: "need_more_info",
                 progress_events: visibleEvents,
@@ -953,20 +988,26 @@ export default function App() {
           }
 
           if (streamEvent.event === "result" && typeof streamEvent.data === "object" && streamEvent.data) {
+            flushStreamBuffers(true);
             const data = streamEvent.data as ChatResponse;
             const visibleEvents = progressEvents.slice(-80);
+            const finalAnswer = data.answer || streamedAnswer || JSON.stringify(data, null, 2);
+            persistReasoning(data.answer || finalAnswer);
             patchMessage(activeSession.id, assistantMessageId, {
-              content: data.answer || JSON.stringify(data, null, 2),
+              content: streamedAnswer || finalAnswer,
               createdAt: new Date().toISOString(),
               isStreaming: false,
               progressEvents: visibleEvents,
               progressStatus: "已完成",
+              streamTranscript,
+              reasoningExpanded: false,
               response: { ...data, progress_events: visibleEvents },
             });
             continue;
           }
 
           if (streamEvent.event === "done") {
+            flushStreamBuffers(true);
             patchMessage(activeSession.id, assistantMessageId, {
               isStreaming: false,
               progressStatus: "已完成",
@@ -975,8 +1016,29 @@ export default function App() {
           }
 
           if (streamEvent.event === "error" && typeof streamEvent.data === "object" && streamEvent.data) {
-            const detail = (streamEvent.data as { detail?: unknown }).detail;
-            throw new Error(typeof detail === "string" ? detail : "请求失败");
+            flushStreamBuffers(true);
+            const statusCode = (streamEvent.data as { status_code?: unknown }).status_code;
+            const fallback =
+              statusCode === 400
+                ? "本轮咨询请求参数有误，请调整后重试。"
+                : "本轮咨询处理失败，请稍后重试或检查后端服务状态。";
+            const visibleEvents = progressEvents.slice(-80);
+            const finalError = streamedAnswer || fallback;
+            persistReasoning(finalError);
+            patchMessage(activeSession.id, assistantMessageId, {
+              content: finalError,
+              createdAt: new Date().toISOString(),
+              isStreaming: false,
+              progressEvents: visibleEvents,
+              progressStatus: "处理失败",
+              streamTranscript,
+              reasoningExpanded: false,
+              response: {
+                status: "error",
+                progress_events: visibleEvents,
+              },
+            });
+            continue;
           }
         }
       }
@@ -994,6 +1056,8 @@ export default function App() {
         createdAt: new Date().toISOString(),
       });
     } finally {
+      window.clearInterval(typewriterTimer);
+      flushStreamBuffers(true);
       controller.abort();
       setIsSending(false);
     }
@@ -1165,17 +1229,20 @@ export default function App() {
                     <time>{formatDate(message.createdAt)}</time>
                   </div>
                   {message.role === "assistant" ? (
-                    <ProgressTimeline
-                      events={message.progressEvents ?? message.response?.progress_events ?? []}
-                      isStreaming={message.isStreaming}
-                      status={message.progressStatus}
-                      totalTimeSeconds={message.response?.total_time}
+                    <ReasoningBlock
+                      message={message}
+                      onToggle={() => toggleReasoning(activeSession.id, message.id)}
                     />
                   ) : null}
                   <div className={`message-content ${message.role === "assistant" && message.content ? "message-answer" : ""}`}>
+                    {message.role === "assistant" && message.content ? <span className="message-answer-label">最终输出</span> : null}
                     {message.role === "assistant" ? (
                       message.content ? (
-                        <ReactMarkdown>{answerContentOnly(message.content)}</ReactMarkdown>
+                        message.isStreaming ? (
+                          <p>{answerContentOnly(message.content)}</p>
+                        ) : (
+                          <ReactMarkdown>{answerContentOnly(message.content)}</ReactMarkdown>
+                        )
                       ) : null
                     ) : (
                       <p>{message.content}</p>

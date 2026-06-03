@@ -394,6 +394,7 @@ curl -N -X POST http://127.0.0.1:8000/chat/stream \
 
 - `start`：SSE 连接已建立，包含 `session_id` 和 `enable_swarm`。
 - `progress`：后端关键执行节点，数据包含 `timestamp`、`stage`、`title`、`detail`、`status` 和 `metadata`。
+- `stream_delta`：用户可见字符流，数据包含 `channel` 和 `delta`。`channel=reasoning` 表示由真实运行事件整理出的公开推理过程，`channel=answer` 表示最终可展示回答。
 - `heartbeat`：后端仍在执行，用于保持连接活跃。
 - `result`：最终咨询结果，结构由 `process_with_swarm(...)` 返回。
 - `done`：流式响应正常结束。
@@ -407,6 +408,12 @@ data: {"session_id":"demo-session-001","enable_swarm":true}
 
 event: progress
 data: {"timestamp":"2026-05-23T10:00:00","stage":"lead_assessment","title":"分析问题复杂度","detail":"判断是否需要多 Agent 协作。","status":"running","metadata":{}}
+
+event: stream_delta
+data: {"channel":"reasoning","delta":"正"}
+
+event: stream_delta
+data: {"channel":"answer","delta":"建"}
 
 event: result
 data: {"answer":"...","swarm_enabled":true}
