@@ -37,6 +37,10 @@ class ApiOfflineTests(unittest.TestCase):
         self.assertEqual(result["service"], "medagentcare")
         self.assertTrue(result["llm_configured"])
         self.assertFalse(result["mem0_configured"])
+        self.assertFalse(result["langsmith_tracing"])
+        self.assertFalse(result["langsmith_configured"])
+        self.assertFalse(result["langsmith_enabled"])
+        self.assertEqual(result["langsmith_project"], "medagentcare")
 
     def test_chat_passes_swarm_disabled_flag_to_runtime(self):
         api = _load_api_with_env({})

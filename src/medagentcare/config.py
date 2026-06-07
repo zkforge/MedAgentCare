@@ -76,6 +76,15 @@ MEM0_CONFIG = {
     "api_key": _get_env("MEM0_API_KEY"),
 }
 
+# LangSmith tracing config. LangSmith SDK still reads these environment
+# variables directly; this dict is for health reporting and local docs.
+LANGSMITH_CONFIG = {
+    "tracing": _get_bool_env("LANGSMITH_TRACING", False),
+    "api_key": _get_env("LANGSMITH_API_KEY"),
+    "project": _get_env("LANGSMITH_PROJECT", "medagentcare"),
+    "endpoint": _get_env("LANGSMITH_ENDPOINT"),
+}
+
 # Personal health memory config. Env enables the backend capability; each
 # request still has to opt in through the UI/API memory flag.
 MEMORY_CONFIG = {

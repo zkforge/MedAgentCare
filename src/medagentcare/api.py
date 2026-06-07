@@ -14,9 +14,11 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from loguru import logger
 from pydantic import BaseModel, Field
 
-from medagentcare.config import LLM_CONFIG, MEM0_CONFIG, MEMORY_CONFIG, SESSION_CONFIG
+from medagentcare.config import LANGSMITH_CONFIG, LLM_CONFIG, MEM0_CONFIG, MEMORY_CONFIG, SESSION_CONFIG
+from medagentcare.core.langsmith_tracing import langsmith_enabled
 from medagentcare.memory import ConversationStore, LocalHealthMemory, LongTermMemory
 
 
@@ -28,6 +30,14 @@ app = FastAPI(
     version="0.1.0",
     description="HTTP API for the MedAgentCare multi-agent medical assistant.",
 )
+
+if langsmith_enabled():
+    try:
+        from langsmith.middleware import TracingMiddleware
+
+        app.add_middleware(TracingMiddleware)
+    except Exception as exc:  # pragma: no cover - observability must not block API
+        logger.warning(f"Failed to enable LangSmith TracingMiddleware: {exc}")
 
 
 def _parse_cors_origins() -> List[str]:
@@ -542,6 +552,10 @@ async def health() -> Dict[str, Any]:
         "service": "medagentcare",
         "llm_configured": bool(LLM_CONFIG.get("api_key")),
         "mem0_configured": bool(MEM0_CONFIG.get("api_key")),
+        "langsmith_tracing": bool(LANGSMITH_CONFIG.get("tracing")),
+        "langsmith_configured": bool(LANGSMITH_CONFIG.get("api_key")),
+        "langsmith_enabled": langsmith_enabled(),
+        "langsmith_project": LANGSMITH_CONFIG.get("project"),
         "memory_enabled": bool(MEMORY_CONFIG.get("enabled")),
         "memory_default_backend": MEMORY_CONFIG.get("default_backend"),
     }

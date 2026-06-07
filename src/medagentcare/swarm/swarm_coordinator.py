@@ -20,6 +20,7 @@ from .shared_context import SharedContext
 from .lead_agent import LeadAgent
 from .events import Event, EventType
 from medagentcare.agents import ConsultationAgent, DiagnosticAgent, ResearchAgent, InterviewAgent
+from medagentcare.core.langsmith_tracing import traceable
 from medagentcare.core.tracing import reset_trace_callback, set_trace_callback
 from medagentcare.memory import SessionSummaryManager, SessionSummary, ShortTermMemory, LongTermMemory, LocalHealthMemory
 from medagentcare.memory.request_context import reset_request_memory, set_request_memory
@@ -564,6 +565,7 @@ class SwarmCoordinator:
             )
         return memory_result
 
+    @traceable(name="SwarmCoordinator.process", run_type="chain")
     async def process(
         self,
         question: str,
@@ -963,6 +965,7 @@ class SwarmCoordinator:
         )
         return result
 
+    @traceable(name="SwarmCoordinator._process_with_swarm", run_type="chain")
     async def _process_with_swarm(
         self,
         question: str,
@@ -1161,6 +1164,7 @@ class SwarmCoordinator:
 
         return result
 
+    @traceable(name="SwarmCoordinator._worker_execute_assigned_tasks", run_type="chain")
     async def _worker_execute_assigned_tasks(
         self,
         worker: Any,
@@ -1209,6 +1213,7 @@ class SwarmCoordinator:
         except Exception as e:
             logger.error(f"{worker.agent_id}: Error processing subtask: {e}")
 
+    @traceable(name="SwarmCoordinator._execute_single_subtask", run_type="chain")
     async def _execute_single_subtask(self, worker, subtask, shared_context):
         """执行单个子任务"""
         try:
@@ -1240,6 +1245,7 @@ class SwarmCoordinator:
                 },
             )
 
+@traceable(name="process_with_swarm", run_type="chain")
 async def process_with_swarm(
     question: str,
     context: Optional[Dict[str, Any]] = None,

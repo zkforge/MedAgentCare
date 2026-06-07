@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from loguru import logger
 
 from medagentcare.config import LLM_CONFIG
+from medagentcare.core.langsmith_tracing import wrap_openai_client
 from medagentcare.core.tracing import emit_trace_event
 
 
@@ -55,9 +56,11 @@ class LLMClient:
                 raise ValueError(
                     "LLM API key is not configured. Set LLM_API_KEY or OPENAI_API_KEY."
                 )
-            self.client = AsyncOpenAI(
-                api_key=api_key,
-                base_url=self.config["base_url"]
+            self.client = wrap_openai_client(
+                AsyncOpenAI(
+                    api_key=api_key,
+                    base_url=self.config["base_url"],
+                )
             )
             self.model_name = self.config["model_name"]
             self.temperature = self.config.get("temperature", 0.7)

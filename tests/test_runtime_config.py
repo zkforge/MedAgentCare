@@ -21,6 +21,10 @@ class RuntimeConfigTests(unittest.TestCase):
             "LLM_TEMPERATURE": "0.2",
             "LLM_MAX_TOKENS": "1024",
             "MEM0_API_KEY": "test-mem0-key",
+            "LANGSMITH_TRACING": "true",
+            "LANGSMITH_API_KEY": "test-langsmith-key",
+            "LANGSMITH_PROJECT": "test-langsmith-project",
+            "LANGSMITH_ENDPOINT": "https://smith.example.test",
         }
 
         with patch.dict(os.environ, env, clear=True):
@@ -32,6 +36,10 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(config.LLM_CONFIG["temperature"], 0.2)
         self.assertEqual(config.LLM_CONFIG["max_tokens"], 1024)
         self.assertEqual(config.MEM0_CONFIG["api_key"], "test-mem0-key")
+        self.assertTrue(config.LANGSMITH_CONFIG["tracing"])
+        self.assertEqual(config.LANGSMITH_CONFIG["api_key"], "test-langsmith-key")
+        self.assertEqual(config.LANGSMITH_CONFIG["project"], "test-langsmith-project")
+        self.assertEqual(config.LANGSMITH_CONFIG["endpoint"], "https://smith.example.test")
 
     def test_openai_api_key_is_supported_as_llm_fallback(self):
         with patch.dict(

@@ -253,6 +253,25 @@ Compose 会把 Milvus Lite 数据库和模型缓存挂载到 Docker volume `/dat
 curl http://127.0.0.1:8000/health
 ```
 
+### LangSmith 链路追踪
+
+本项目可选接入 LangSmith，用于查看一次咨询中的 FastAPI 请求、Swarm 路由、Agent Loop、Skill 调用和 OpenAI-compatible LLM 调用。默认关闭；配置以下环境变量后启动后端即可启用：
+
+```bash
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=your-langsmith-api-key
+LANGSMITH_PROJECT=medagentcare
+uv run uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
+```
+
+Docker Compose 启动时同样读取这些变量：
+
+```bash
+LANGSMITH_TRACING=true LANGSMITH_API_KEY=your-langsmith-api-key docker compose up -d
+```
+
+启用后，`/chat` 和 `/chat/stream` 的后端执行链路会写入 LangSmith；项目内原有 SSE `progress` 事件仍然用于前端实时展示。
+
 流式咨询接口：
 
 ```bash
@@ -287,7 +306,13 @@ curl http://127.0.0.1:8000/health
   "status": "ok",
   "service": "medagentcare",
   "llm_configured": true,
-  "mem0_configured": true
+  "mem0_configured": true,
+  "langsmith_tracing": false,
+  "langsmith_configured": false,
+  "langsmith_enabled": false,
+  "langsmith_project": "medagentcare",
+  "memory_enabled": true,
+  "memory_default_backend": "local"
 }
 ```
 
@@ -297,6 +322,12 @@ curl http://127.0.0.1:8000/health
 - `service`：服务名。
 - `llm_configured`：是否检测到 `LLM_API_KEY`。
 - `mem0_configured`：是否检测到 `MEM0_API_KEY`。
+- `langsmith_tracing`：是否配置了 `LANGSMITH_TRACING=true`。
+- `langsmith_configured`：是否检测到 `LANGSMITH_API_KEY`。
+- `langsmith_enabled`：LangSmith tracing 是否已具备运行条件。
+- `langsmith_project`：当前 LangSmith project 名称。
+- `memory_enabled`：是否启用长期记忆后端能力。
+- `memory_default_backend`：默认长期记忆后端。
 
 ### 流式医疗咨询
 

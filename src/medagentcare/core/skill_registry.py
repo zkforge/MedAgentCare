@@ -9,6 +9,7 @@ import asyncio
 import time
 from loguru import logger
 
+from medagentcare.core.langsmith_tracing import traceable
 from medagentcare.core.tracing import emit_trace_event, text_preview
 
 
@@ -64,6 +65,7 @@ class SkillRegistry:
         """获取所有 Skills"""
         return self.skills
 
+    @traceable(name="SkillRegistry.execute", run_type="tool")
     async def execute(self, name: str, **kwargs) -> Dict[str, Any]:
         """
         执行 Skill

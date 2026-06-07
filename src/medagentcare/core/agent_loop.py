@@ -9,6 +9,7 @@ import json
 from typing import Dict, Any, List, Optional
 from loguru import logger
 
+from .langsmith_tracing import traceable
 from .state_manager import StateManager, TaskStatus
 from .llm_client import LLMResponse
 
@@ -53,6 +54,7 @@ class AgentLoop:
         if CONSTRAINTS_ENABLED:
             logger.debug("✅ Constraint validation enabled")
 
+    @traceable(name="AgentLoop.run", run_type="chain")
     async def run(self, agent, input_data: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
         """
         执行Agent循环
