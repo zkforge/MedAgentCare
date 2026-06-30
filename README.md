@@ -1,136 +1,108 @@
+<div align="center">
+
 # 🩺 MedAgentCare
+### Multi-Agent Medical Consultation System with Streaming Safety Guardrails
 
-面向多轮医疗咨询的多 Agent 协作与安全问答系统。
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Badge"/>
+  <img src="https://img.shields.io/badge/FastAPI-API-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI Badge"/>
+  <img src="https://img.shields.io/badge/React-TypeScript-61DAFB?style=for-the-badge&logo=react&logoColor=111" alt="React Badge"/>
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker Badge"/>
+  <img src="https://img.shields.io/badge/uv-Package%20Manager-5C4EE5?style=for-the-badge" alt="uv Badge"/>
+</p>
 
-![Python](https://img.shields.io/badge/Python-3.11+-3776AB)
-![FastAPI](https://img.shields.io/badge/FastAPI-API-009688)
-![React](https://img.shields.io/badge/React-Frontend-61DAFB)
-![TypeScript](https://img.shields.io/badge/TypeScript-Frontend-3178C6)
-![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)
-![uv](https://img.shields.io/badge/uv-package%20manager-5C4EE5)
+---
 
-MedAgentCare 面向多症状、多轮次、信息不完整的医疗咨询场景，构建“问诊信息采集 + 业务 Skill + 专业 Agent + Swarm 协作”的安全问答链路，用于缓解背景信息缺失、复杂问题拆解不足、上下文遗忘和安全边界不稳定等问题。
+面向多症状、多轮次、信息不完整的医疗咨询场景，构建"问诊信息采集 + 业务 Skill + 专业 Agent + Swarm 协作"的安全问答链路。
 
-> ⚠️ 说明：本项目仅用于学习、研究和工程展示，不能替代医生诊断或治疗。
+</div>
+
+> [!WARNING]
+> 本项目仅用于学习、研究和工程展示，不能替代医生诊断或治疗。涉及胸痛、呼吸困难、意识异常、严重过敏、急性神经功能缺损等高危症状时，应及时就医或联系当地急救服务。
 
 <p align="center">
   <img src="assets/MedAgentCare.png" alt="MedAgentCare 前端演示界面" width="900">
 </p>
 
-## 🧭 项目概览
+## 🌟 核心特性
 
-### 项目定位
+<div align="center">
 
-在普通单 Agent 医疗问答中，模型容易把问诊采集、症状分析、知识检索、风险分级、生活建议和安全提示混在一次生成里处理，导致信息不足时追问不稳定、复杂问题拆解不足、多轮上下文丢失，以及高危症状提醒和免责声明遗漏。MedAgentCare 的核心目标是把医疗咨询拆成可复用、可约束、可验证的执行单元，并通过三路路由在问诊采集、快速咨询和 Swarm 协作之间切换执行路径。
+<table>
+<tr>
+<td width="25%" align="center">
+<b>🩺 多轮问诊采集</b><br/>
+症状背景不足时先追问
+</td>
+<td width="25%" align="center">
+<b>🧭 三路智能路由</b><br/>
+问诊、快路径、Swarm 协作
+</td>
+<td width="25%" align="center">
+<b>🧩 9 个可发现 Skill</b><br/>
+检索、评估、研究与记忆
+</td>
+<td width="25%" align="center">
+<b>🛡️ 医疗安全约束</b><br/>
+校验、修复与免责声明
+</td>
+</tr>
+</table>
 
-### 核心方案
+</div>
 
-- **分层架构**：将检索、评估、建议和研究等能力拆分为 9 个可发现 Skill，其中 7 个业务 Skill 覆盖知识检索、风险评估、症状分析、生活建议、ICD-10 编码、临床指南和深度研究，2 个记忆类 Skill 覆盖会话历史与相似案例检索。
-- **专业 Agent**：定义路由入口、问诊 Agent 和 3 个 Worker Agent。`InterviewAgent` 负责逐轮信息采集，`LeadAgent` 负责复杂问题拆解与结果汇总，`ConsultationAgent`、`DiagnosticAgent`、`ResearchAgent` 分别承担健康咨询、诊断推理和循证研究任务。
-- **问诊路由**：构建“信息采集 → 快速咨询 → Swarm 协作”的三路路由机制。症状背景不足时先由 `InterviewAgent` 追问关键信息并生成问诊摘要；常见低风险咨询进入 `ConsultationAgent` 快速路径；复杂、高危、诊断或研究类问题由 `LeadAgent` 拆解后交给多个专业 Agent 并行处理。
-- **记忆机制**：短期记忆维护会话内最近 5 轮关键上下文；长期记忆支持 Mem0 后端，并提供本地文件记忆后端，支持跨会话相似案例检索和会话摘要沉淀。
-- **安全约束**：通过 Harness Engineering 约束 Agent 能力边界、工具调用、输出格式和医疗安全策略，覆盖免责声明、高危症状提醒、明确诊断和处方剂量风险，并在可修复场景下自动补全不合规输出。
+- **问诊信息采集**：`InterviewAgent` 维护症状报告状态，在关键信息不足时逐轮追问，并在信息完整后生成问诊摘要。
+- **快速咨询路径**：常见、低风险、无需复杂拆解的问题可直接进入 `ConsultationAgent`，降低响应成本。
+- **Swarm 协作路径**：复杂、高危、诊断或研究类问题由 `LeadAgent` 拆解任务，再交给 `ConsultationAgent`、`DiagnosticAgent`、`ResearchAgent` 并行处理。
+- **记忆机制**：短期记忆维护会话内上下文；长期记忆支持 Mem0，也提供本地文件后端用于跨会话健康记忆和相似案例检索。
+- **安全输出边界**：通过 YAML 约束、运行时校验和自动修复，覆盖明确诊断、处方剂量、高危症状提醒和免责声明等风险点。
 
-### 架构图
+## 🏗️ 系统架构
 
 ```mermaid
-flowchart TB
-    User["用户输入<br/>健康咨询问题"] --> Entry["入口层<br/>CLI / FastAPI / 前端 SSE"]
-    Entry --> Process["process_with_swarm"]
-    Process --> Router{"SwarmCoordinator<br/>三路路由"}
+graph TD
+    A["💬 用户输入"] --> B["🚪 入口层"]
+    B --> C{"🧭 路由决策?"}
 
-    subgraph Memory["记忆系统"]
-        ShortMemory["短期记忆<br/>最近 5 轮上下文"]
-        InterviewState["问诊状态<br/>多轮采集进度"]
-        LongMemory["长期记忆<br/>Mem0"]
-        LocalMemory["本地文件记忆"]
-    end
+    C -->|症状不足| D["🩺 问诊采集"]
+    D --> E{"📝 问诊完成?"}
+    E -->|继续追问| F["🔄 返回追问"]
+    E -->|生成摘要| C
 
-    Router -.-> Memory
-    Router -->|症状背景不足| Interview["InterviewAgent<br/>问诊信息采集"]
-    Interview --> InterviewResult{"问诊是否完成"}
-    InterviewResult -->|继续追问| FollowUp["返回追问<br/>等待下一轮输入"]
-    InterviewResult -->|生成摘要| Router
+    C -->|低风险| G["⚡ 快速咨询"]
+    C -->|复杂/高危| H["🧠 LeadAgent 拆解"]
+    H --> I["👥 Worker 并行"]
 
-    Router -->|常见低风险咨询| FastPath["快速咨询路径"]
-    FastPath --> Consultation["ConsultationAgent<br/>健康咨询"]
+    G --> J["🔄 Agent Loop"]
+    I --> J
 
-    Router -->|复杂 / 高危 / 研究类问题| Lead["LeadAgent<br/>路由拆解与汇总"]
-    Lead --> Shared["SharedContext<br/>子任务与共享上下文"]
+    J --> K["🧩 Skill 层"]
+    K --> L[("📚 Milvus Lite")]
+    K --> M[("🔍 DuckDuckGo")]
+    K --> N["🧠 记忆系统"]
 
-    subgraph Workers["Worker Agent 并行执行"]
-        ConsultWorker["ConsultationAgent"]
-        DiagnosticWorker["DiagnosticAgent"]
-        ResearchWorker["ResearchAgent"]
-    end
+    H --> O["📋 结果汇总"]
+    J --> O
+    N -.-> O
+    O --> P["🛡️ 安全校验与修复"]
+    P --> Q["📤 最终输出"]
 
-    Shared --> ConsultWorker
-    Shared --> DiagnosticWorker
-    Shared --> ResearchWorker
-
-    subgraph Loop["Agent Loop<br/>ReAct / Think-Act-Observe"]
-        SkillRegistry["Skill Registry<br/>自动发现与加载"]
-        Validator["ConstraintValidator<br/>能力边界与输出校验"]
-        AutoFixer["AutoFixer<br/>安全输出修复"]
-    end
-
-    Consultation --> Loop
-    ConsultWorker --> Loop
-    DiagnosticWorker --> Loop
-    ResearchWorker --> Loop
-
-    subgraph Skills["Skill 层<br/>7 个业务 Skill + 2 个记忆 Skill"]
-        SearchKnowledge["search_knowledge"]
-        AssessRisk["assess_risk"]
-        AnalyzeSymptoms["analyze_symptoms"]
-        RecommendLifestyle["recommend_lifestyle"]
-        DiseaseCode["disease_code"]
-        ClinicalGuideline["clinical_guideline"]
-        DeepResearch["deep_research"]
-        SearchHistory["search_history"]
-        SearchSimilar["search_similar_cases"]
-    end
-
-    SkillRegistry --> Skills
-    Validator -.-> Skills
-    AutoFixer -.-> Loop
-
-    SearchKnowledge --> Milvus[("Milvus 知识库<br/>语义检索")]
-    AssessRisk --> Milvus
-    AnalyzeSymptoms --> Milvus
-    RecommendLifestyle --> Milvus
-    DiseaseCode --> Milvus
-    ClinicalGuideline --> Milvus
-    DeepResearch --> WebSearch[("DuckDuckGo<br/>网络搜索")]
-    SearchHistory --> ShortMemory
-    SearchSimilar --> LongMemory
-    SearchSimilar --> LocalMemory
-
-    Lead --> Summary["结果汇总<br/>结构化正文 / 建议 / 免责声明"]
-    Loop --> Summary
-    Memory -.-> Summary
-    Summary --> Output["最终输出<br/>SSE / JSON"]
-
-    classDef entry fill:#d8e8ff,stroke:#4777b3,stroke-width:1px,color:#111;
-    classDef router fill:#fff2cc,stroke:#d6a300,stroke-width:1px,color:#111;
-    classDef agent fill:#f8cecc,stroke:#cc5c55,stroke-width:1px,color:#111;
-    classDef loop fill:#eadcf2,stroke:#8e6aa3,stroke-width:1px,color:#111;
-    classDef skill fill:#e6f4df,stroke:#6aa84f,stroke-width:1px,color:#111;
-    classDef data fill:#dbeafe,stroke:#3c78d8,stroke-width:1px,color:#111;
-    classDef output fill:#e6f4df,stroke:#6aa84f,stroke-width:1px,color:#111;
-
-    class User,Entry,Process entry;
-    class Router,Summary,InterviewResult router;
-    class Interview,FollowUp,FastPath,Lead,Shared,ConsultWorker,DiagnosticWorker,ResearchWorker,Consultation agent;
-    class Loop,SkillRegistry,Validator,AutoFixer loop;
-    class SearchKnowledge,AssessRisk,AnalyzeSymptoms,RecommendLifestyle,DiseaseCode,ClinicalGuideline,DeepResearch,SearchHistory,SearchSimilar skill;
-    class Milvus,WebSearch,ShortMemory,InterviewState,LongMemory,LocalMemory data;
-    class Output output;
+    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style C fill:#fff2cc,stroke:#d6a300,stroke-width:2px
+    style E fill:#fff2cc,stroke:#d6a300,stroke-width:2px
+    style D fill:#ff6b35,stroke:#d84315,stroke-width:2px,color:#fff
+    style H fill:#ff6b35,stroke:#d84315,stroke-width:2px,color:#fff
+    style I fill:#ff6b35,stroke:#d84315,stroke-width:2px,color:#fff
+    style J fill:#4caf50,stroke:#2e7d32,stroke-width:3px,color:#fff
+    style K fill:#eadcf2,stroke:#8e6aa3,stroke-width:2px,color:#fff
+    style P fill:#ff9800,stroke:#ef6c00,stroke-width:2px,color:#fff
 ```
 
-### 结果指标
+## 📊 指标与验证
 
-项目评估关注路由、记忆、响应成本和医疗安全边界四类指标：
+项目评估关注路由、记忆、响应成本和医疗安全边界四类指标。
+
+<div align="center">
 
 | 维度 | 优化前 | 优化后 |
 | --- | ---: | ---: |
@@ -139,51 +111,41 @@ flowchart TB
 | 多轮上下文理解准确率 | 60% | 92% |
 | 医学盲评综合得分 | 3.8 / 5 | 4.5 / 5 |
 
+</div>
+
 评测方式包括自建多轮医疗咨询样例集、LLM-as-a-Judge 和人工抽检，重点观察信息不足场景下回答完整性、风险识别稳定性、免责声明覆盖和高危症状就医提醒。
 
-### 技术栈
+## 🛠️ 技术栈
+
+<div align="center">
 
 | 层级 | 技术 |
 | --- | --- |
-| 后端服务 | Python, FastAPI |
+| 后端服务 | Python, FastAPI, Pydantic |
 | 前端演示 | React, TypeScript, Vite |
-| Agent 编排 | ReAct, Agent Swarm, Skill Registry |
+| Agent 编排 | Think-Act-Observe, Agent Swarm, Skill Registry |
 | 记忆与知识库 | Mem0, Milvus Lite, 本地文件记忆 |
 | 安全约束 | YAML constraints, runtime validator, auto fixer |
-| 工程化 | uv, Docker, unittest |
+| 工程化 | uv, Docker Compose, unittest |
 
-## 📁 目录结构
+</div>
 
-```text
-.
-├── pyproject.toml                 # 包元数据和命令入口
-├── Dockerfile                     # Docker 部署入口
-├── .env.example                   # 环境变量示例
-├── src/medagentcare/
-│   ├── api.py                     # FastAPI HTTP 入口
-│   ├── main.py                    # 交互式 CLI 入口
-│   ├── config.py                  # 环境变量驱动的运行配置
-│   ├── agents/                    # 三类 Worker Agent
-│   ├── core/                      # LLM、Agent Loop、Skill 注册/加载
-│   ├── swarm/                     # Swarm 路由与共享上下文
-│   ├── memory/                    # 短期/长期记忆与会话总结
-│   ├── knowledge/                 # Milvus Lite 知识库封装和导入脚本
-│   ├── research/                  # DeepResearch 工作流和证据综合
-│   ├── constraints/               # Agent/Swarm 约束配置
-│   └── validation/                # 输出验证和自动修复模块
-└── frontend/                      # 前端演示页
+## 🚀 快速开始
+
+### 📦 安装后端依赖
+
+```bash
+uv sync
 ```
 
-## ⚙️ 配置
-
-配置统一从环境变量读取。
+### 🔑 配置环境变量
 
 ```bash
 cp .env.example .env
 ```
 
 <details>
-<summary>关键环境变量</summary>
+<summary><b>关键环境变量</b></summary>
 
 ```bash
 LLM_API_KEY=your-openai-compatible-api-key
@@ -204,37 +166,37 @@ TORCH_HOME=/Users/your-name/.cache/torch
 
 </details>
 
-## 🚀 本地运行
-
-```bash
-uv sync
-```
-
-启动 CLI：
-
-```bash
-uv run medagentcare
-```
-
-启动 FastAPI：
+### ⚡ 启动 FastAPI 后端
 
 ```bash
 uv run uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
 ```
 
-启动前端演示页：
+服务启动后可访问：
+
+- API 文档：`http://127.0.0.1:8000/docs`
+- ReDoc 文档：`http://127.0.0.1:8000/redoc`
+- 健康检查：`http://127.0.0.1:8000/health`
+
+### 🖥️ 启动前端演示页
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-前端默认为 `http://127.0.0.1:5173`。
+前端默认访问地址为 `http://127.0.0.1:5173`，默认调用 `VITE_API_BASE_URL` 指向的后端。
 
-### Docker Compose 一键启动
+### 💬 启动 CLI
 
-本地有 Docker Desktop 或 Docker Engine + Compose Plugin 时，可以直接启动 FastAPI 后端和 Vite 前端：
+```bash
+uv run medagentcare
+```
+
+## 🐳 Docker Compose
+
+本地有 Docker Desktop 或 Docker Engine + Compose Plugin 时，可以一键启动 FastAPI 后端和 Vite 前端：
 
 ```bash
 docker compose up -d
@@ -246,54 +208,20 @@ docker compose up -d
 - 后端健康检查：`http://localhost:8000/health`
 - 后端流式咨询接口：`http://localhost:8000/chat/stream`
 
-Compose 会把 Milvus Lite 数据库和模型缓存挂载到 Docker volume `/data` 下。容
-健康检查：
+Compose 会把 Milvus Lite 数据库、会话数据、长期记忆和模型缓存挂载到 `/data` 与本地 `.medagentcare/` 目录下。
+
+常用运维命令：
 
 ```bash
-curl http://127.0.0.1:8000/health
-```
-
-### LangSmith 链路追踪
-
-本项目可选接入 LangSmith，用于查看一次咨询中的 FastAPI 请求、Swarm 路由、Agent Loop、Skill 调用和 OpenAI-compatible LLM 调用。默认关闭；配置以下环境变量后启动后端即可启用：
-
-```bash
-LANGSMITH_TRACING=true
-LANGSMITH_API_KEY=your-langsmith-api-key
-LANGSMITH_PROJECT=medagentcare
-uv run uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
-```
-
-Docker Compose 启动时同样读取这些变量：
-
-```bash
-LANGSMITH_TRACING=true LANGSMITH_API_KEY=your-langsmith-api-key docker compose up -d
-```
-
-启用后，`/chat` 和 `/chat/stream` 的后端执行链路会写入 LangSmith；项目内原有 SSE `progress` 事件仍然用于前端实时展示。
-
-流式咨询接口：
-
-```bash
-curl -N -X POST http://127.0.0.1:8000/chat/stream \
-  -H "Accept: text/event-stream" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "我最近头痛和发热，应该怎么办？"
-  }'
+docker compose config --quiet
+docker compose logs -f api
+docker compose logs -f frontend
+docker compose down
 ```
 
 ## 🔌 API 接入
 
-### 健康检查
-
-> 浏览器打开以查看： 
-
-> http://127.0.0.1:8000/docs 
-
-> http://127.0.0.1:8000/redoc
-
-请求：
+### ✅ 健康检查
 
 ```bash
 curl http://127.0.0.1:8000/health
@@ -316,22 +244,11 @@ curl http://127.0.0.1:8000/health
 }
 ```
 
-字段说明：
+`/health` 只表示 API 进程和基础配置可检查，不代表真实 LLM、Mem0、Milvus Lite 或外网搜索链路一定可用。
 
-- `status`：服务进程是否可响应请求。
-- `service`：服务名。
-- `llm_configured`：是否检测到 `LLM_API_KEY`。
-- `mem0_configured`：是否检测到 `MEM0_API_KEY`。
-- `langsmith_tracing`：是否配置了 `LANGSMITH_TRACING=true`。
-- `langsmith_configured`：是否检测到 `LANGSMITH_API_KEY`。
-- `langsmith_enabled`：LangSmith tracing 是否已具备运行条件。
-- `langsmith_project`：当前 LangSmith project 名称。
-- `memory_enabled`：是否启用长期记忆后端能力。
-- `memory_default_backend`：默认长期记忆后端。
+### 🌊 流式医疗咨询
 
-### 流式医疗咨询
-
-请求：
+前端默认使用 `/chat/stream`。该接口返回 Server-Sent Events，不应按普通 JSON 响应处理。
 
 ```bash
 curl -N -X POST "http://127.0.0.1:8000/chat/stream" \
@@ -352,6 +269,27 @@ curl -N -X POST "http://127.0.0.1:8000/chat/stream" \
   }'
 ```
 
+SSE 事件包括 `start`、`progress`、`stream_delta`、`heartbeat`、`result`、`done`、`error`。代理或网关部署时要避免响应体缓冲，并给 LLM、检索和外网搜索链路留足超时。
+
+### 🔍 LangSmith 链路追踪
+
+本项目可选接入 LangSmith，用于查看一次咨询中的 FastAPI 请求、Swarm 路由、Agent Loop、Skill 调用和 OpenAI-compatible LLM 调用。默认关闭。
+
+```bash
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=your-langsmith-api-key
+LANGSMITH_PROJECT=medagentcare
+uv run uvicorn medagentcare.api:app --host 0.0.0.0 --port 8000
+```
+
+Docker Compose 启动时同样读取这些变量：
+
+```bash
+LANGSMITH_TRACING=true LANGSMITH_API_KEY=your-langsmith-api-key docker compose up -d
+```
+
+启用后，`/chat` 和 `/chat/stream` 的后端执行链路会写入 LangSmith；项目内 SSE `progress` 事件仍用于前端实时展示。
+
 ## 📚 知识库
 
 医学文档位于 `src/medagentcare/knowledge/data/documents/`，这些 txt 文件是版本化源数据。导入 Milvus Lite：
@@ -360,11 +298,35 @@ curl -N -X POST "http://127.0.0.1:8000/chat/stream" \
 uv run medagentcare-import-knowledge
 ```
 
-`src/medagentcare/knowledge/data/*.db` 按当前策略视为本地生成产物，默认不纳入 Git，也不会进入 Docker build context。部署时需要在环境初始化阶段运行导入脚本，或通过 volume 挂载预生成的数据库。详见 `src/medagentcare/knowledge/data/README.md`。
+`src/medagentcare/knowledge/data/*.db` 是本地生成产物，默认不纳入 Git，也不会进入 Docker build context。部署时需要在环境初始化阶段运行导入脚本，或通过 volume 挂载预生成的数据库。详见 `src/medagentcare/knowledge/data/README.md`。
 
-## 🧪 验证状态
+## 📁 项目结构
 
-离线回归测试命令：
+```text
+.
+├── pyproject.toml                 # 包元数据和命令入口
+├── Dockerfile                     # Docker 部署入口
+├── compose.yaml                   # 后端 + 前端 Compose 编排
+├── .env.example                   # 环境变量示例
+├── src/medagentcare/
+│   ├── api.py                     # FastAPI HTTP 入口
+│   ├── main.py                    # 交互式 CLI 入口
+│   ├── config.py                  # 环境变量驱动的运行配置
+│   ├── agents/                    # 三类 Worker Agent
+│   ├── core/                      # LLM、Agent Loop、Skill 注册/加载
+│   ├── swarm/                     # Swarm 路由与共享上下文
+│   ├── memory/                    # 短期/长期记忆与会话总结
+│   ├── knowledge/                 # Milvus Lite 知识库封装和导入脚本
+│   ├── research/                  # DeepResearch 工作流和证据综合
+│   ├── constraints/               # Agent/Swarm 约束配置
+│   └── validation/                # 输出验证和自动修复模块
+├── frontend/                      # React + Vite 前端演示页
+└── tests/                         # 离线单元/集成替身测试
+```
+
+## 🧪 验证命令
+
+离线回归测试：
 
 ```bash
 uv run python -m unittest discover -s tests
@@ -372,8 +334,21 @@ uv run python -m unittest discover -s tests
 
 该命令覆盖运行配置读取、FastAPI `/health`、Skill 发现、医疗安全约束，以及 `/chat`、`/chat/stream` 在 mock Swarm 下的错误边界和 `enable_swarm=False` 参数传递。
 
-基础编译检查命令：
+基础编译检查：
 
 ```bash
 uv run python -m compileall -q src tests .agents/skills
+```
+
+前端构建检查：
+
+```bash
+cd frontend
+npm run build
+```
+
+Docker Compose 配置检查：
+
+```bash
+docker compose config --quiet
 ```
